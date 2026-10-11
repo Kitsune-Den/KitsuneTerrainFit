@@ -26,9 +26,10 @@ When you place a **full, opaque cube** (or a **farm plot**) next to the ground, 
 | Cube sitting just above lower ground | Raises the ground under its edges to meet it. Closer ground gets more fill |
 | Ground only diagonal to the cube | A small, capped fill |
 | Cube built into a cut in a hillside | `embed`: pulls the hill in over the edge. `clear`: leaves it vanilla, since air density already puts the hillside flush against the face |
+| A floor, step, slab, door or other partial block next to it (sides or diagonals) | Leaves it vanilla. The fill shapes ground into the neighbouring spaces, and a partial block can't hide it, so dirt would poke up through the floor |
 | Water next to the cube, ground or another fitted block on top of it, not a full cube, glass, anything with a tile entity, multi-blocks | Leaves it vanilla |
 
-Breaking the block puts the voxel back to air the normal vanilla way. Upgrading or repairing it keeps the fitted density.
+Breaking the block puts the voxel back to air the normal vanilla way. Upgrading or repairing it keeps the fitted density. Placing a floor, step or other partial block next to a fitted cube puts that cube back to vanilla, so building walls before floors doesn't leave dirt along the seams.
 
 ### Fixing what's already built
 

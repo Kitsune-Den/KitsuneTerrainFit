@@ -75,6 +75,13 @@ public static class TerrainFit
         new Vector3i(1, 0, 1), new Vector3i(-1, 0, 1), new Vector3i(1, 0, -1), new Vector3i(-1, 0, -1),
     };
 
+    /// <summary>The eight spaces around a block on its own level: sides then corners.</summary>
+    public static readonly Vector3i[] Around =
+    {
+        new Vector3i(1, 0, 0), new Vector3i(-1, 0, 0), new Vector3i(0, 0, 1), new Vector3i(0, 0, -1),
+        new Vector3i(1, 0, 1), new Vector3i(-1, 0, 1), new Vector3i(1, 0, -1), new Vector3i(-1, 0, -1),
+    };
+
     /// <summary>Keep the slope a hair under the top edge rather than exactly on it.</summary>
     private const double EdgeMargin = 0.01;
 
@@ -136,6 +143,18 @@ public static class TerrainFit
         if (pending.Contains(above) || !IsOpen(world, above))
             return FitResult.Skip("covered", "the space above isn't open");
         int u = world.GetDensity(above.x, above.y, above.z);
+
+        // A fill shapes the ground in the half of each neighbouring space
+        // next to this block: outdoors that's the ramp that closes the trench.
+        // A floor, step, slab or door there can't hide it, so dirt would poke
+        // up through it. Only fit when every neighbour is open, ground, or a
+        // block that covers its whole space.
+        foreach (var offset in Around)
+        {
+            var n = pos + offset;
+            if (!pending.Contains(n) && ShowsFill(world.GetBlock(n.x, n.y, n.z)))
+                return FitResult.Skip("next-to-partial-block");
+        }
 
         int surfaceSides = 0, wallSides = 0, lowerSides = 0, surfaceCorners = 0;
         double weighted = 0, weight = 0;
@@ -280,6 +299,22 @@ public static class TerrainFit
             Mode = mode,
             Detail = contacts + string.Format(CultureInfo.InvariantCulture, ", top {0:F3}", top),
         };
+    }
+
+    /// <summary>
+    /// A block that wouldn't hide ground shaped into its space: not air or
+    /// grass-like cover, not terrain or water, and not a full opaque cube or
+    /// an alsoFit block. Floors, steps, slabs, doors, glass...
+    /// </summary>
+    public static bool ShowsFill(BlockValue bv)
+    {
+        if (bv.isair || bv.isTerrain || bv.isWater) return false;
+        var block = bv.Block;
+        if (block == null || block.CanBlocksReplaceOrGroundCover()) return false;
+        // Flowers, crops, bushes, rocks: the ground around them is ground.
+        if (block is BlockPlant || block.IsTerrainDecoration) return false;
+        if (bv.ischild) return true;
+        return !IsFittableCube(bv, out _);
     }
 
     private static bool IsSolidTerrain(WorldBase world, Vector3i p)

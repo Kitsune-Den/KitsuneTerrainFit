@@ -98,12 +98,31 @@ public static class PlacementPatches
 
         HashSet<Vector3i> pending = null;
         List<BlockChangeInfo> fitted = null;
+        List<BlockChangeInfo> resets = null;
 
         foreach (var change in changes)
         {
             if (change == null || !change.bChangeBlockValue) continue;
             if (!change.blockValueRef.TryGetBlockPos(out var pos)) continue;
             if (pos.y < 2 || pos.y > 253) continue;
+
+            // A floor, step or similar going in next to an already-fitted cube
+            // would show that cube's fill poking up through it (walls built
+            // before floors). Put those neighbours back to vanilla.
+            if (TerrainFit.ShowsFill(change.blockValue))
+            {
+                pending ??= PendingPositions(changes);
+                foreach (var offset in TerrainFit.Around)
+                {
+                    var n = pos + offset;
+                    if (pending.Contains(n)) continue;
+                    var nbv = world.GetBlock(n.x, n.y, n.z);
+                    if (world.GetDensity(n.x, n.y, n.z) > 1 || !TerrainFit.IsFittableCube(nbv, out _)) continue;
+                    (resets ??= new List<BlockChangeInfo>()).Add(Corrections.DensityOnly(n, MarchingCubes.DensityAir, false));
+                    pending.Add(n);
+                    Log.Out($"[KitsuneTerrainFit] unfit {Name(nbv)} at {n}: {Name(change.blockValue)} placed beside it by entity {change.changedByEntityId}");
+                }
+            }
 
             // Only into space that's still air-side: open ground, or a block
             // that was never fitted (e.g. a frame being upgraded). Anything
@@ -140,6 +159,14 @@ public static class PlacementPatches
             (fitted ??= new List<BlockChangeInfo>()).Add(change);
 
             Log.Out($"[KitsuneTerrainFit] fit {Name(change.blockValue)} at {pos} by entity {change.changedByEntityId}: {fit.Mode} density {fit.Density}{(fit.Force ? " (forced)" : "")} ({fit.Detail})");
+        }
+
+        if (resets != null)
+        {
+            // Same batch, so the server applies them and relays them with the
+            // placement; the placer gets them through the correction.
+            changes.AddRange(resets);
+            (fitted ??= new List<BlockChangeInfo>()).AddRange(resets);
         }
 
         return fitted;
