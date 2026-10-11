@@ -113,7 +113,7 @@ public static class PlacementPatches
             // placement, so only a solid density means someone upstream chose one.
             if (change.bChangeDensity && change.density <= 0) continue;
 
-            if (!TerrainFit.IsFittableCube(change.blockValue, out var notCube))
+            if (!TerrainFit.IsFittableCube(change.blockValue, out var notCube, out var maxTop))
             {
                 var bv = change.blockValue;
                 // Digging, terrain and water aren't builds; not worth a line even in verbose.
@@ -124,7 +124,7 @@ public static class PlacementPatches
 
             pending ??= PendingPositions(changes);
             pending.Remove(pos);
-            var fit = TerrainFit.Solve(world, pos, pending);
+            var fit = TerrainFit.Solve(world, pos, pending, maxTop);
             pending.Add(pos);
 
             if (!fit.Apply)

@@ -48,12 +48,14 @@ tfit verbose on         also log every placement it skipped, and why
 `Settings.xml` in the mod folder:
 
 ```xml
-<KitsuneTerrainFit enabled="true" alsoFit="farmPlotBlock*" verbose="false" />
+<KitsuneTerrainFit enabled="true" alsoFit="farmPlotBlock*" alsoFitHeight="0.75" verbose="false" />
 ```
 
 `enabled="false"` makes placement fully vanilla. `tfit` still works.
 
 `alsoFit` lists blocks to fit even though they aren't six full faces, as long as their walls hide the ground tucked inside. Farm plots qualify: an open soil top and sides that cull against neighbours, but solid walls all the way round. Comma separated, `*` matches anything, `alsoFit=""` turns it off.
+
+`alsoFitHeight` caps how far up those blocks the ground may come, as a fraction of their height. A farm plot's soil sits a little below its rim, so fitting it like a cube (all the way to the top) buries the soil. At the default 0.75 the ground stays just under the soil and still meets the rim with only a slight bevel. Open-topped blocks dug into a hillside are left vanilla, because vanilla already puts the wall flush against them and a fill would pull the hill in over the rim.
 
 ## How it hooks in
 

@@ -122,7 +122,7 @@ public class ConsoleCmdTerrainFit : ConsoleCmdAbstract
             for (int y = yMin; y <= yMax; y++)
             {
                 var bv = world.GetBlock(x, y, z);
-                if (!TerrainFit.IsFittableCube(bv, out _)) continue;
+                if (!TerrainFit.IsFittableCube(bv, out _, out var maxTop)) continue;
 
                 var pos = new Vector3i(x, y, z);
                 sbyte density = world.GetDensity(x, y, z);
@@ -144,7 +144,7 @@ public class ConsoleCmdTerrainFit : ConsoleCmdAbstract
                 candidates++;
                 if (HasTrigger(chunk, pos)) { skippedTrigger++; continue; }
 
-                var fit = TerrainFit.Solve(world, pos, noPending);
+                var fit = TerrainFit.Solve(world, pos, noPending, maxTop);
                 if (!fit.Apply) continue;
                 changes.Add(Corrections.DensityOnly(pos, fit.Density, fit.Force));
                 Count(modes, fit.Mode);

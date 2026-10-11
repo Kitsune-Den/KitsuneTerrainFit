@@ -27,6 +27,15 @@ public static class TerrainFitConfig
 
     private static Regex alsoFitRegex = Compile(DefaultAlsoFit);
 
+    public const double DefaultAlsoFitHeight = 0.75;
+
+    /// <summary>
+    /// How far up an alsoFit block the ground may come, as a fraction of the
+    /// block's height. 1 = flush with the top (buries a farm plot's soil),
+    /// 0.5 or less = no fill.
+    /// </summary>
+    public static double AlsoFitHeight { get; private set; } = DefaultAlsoFitHeight;
+
     public static bool IsAlsoFit(string blockName) =>
         alsoFitRegex != null && blockName != null && alsoFitRegex.IsMatch(blockName);
 
@@ -35,6 +44,7 @@ public static class TerrainFitConfig
         Enabled = true;
         Verbose = false;
         SetAlsoFit(DefaultAlsoFit);
+        AlsoFitHeight = DefaultAlsoFitHeight;
         try
         {
             if (string.IsNullOrEmpty(modPath)) return;
@@ -53,7 +63,9 @@ public static class TerrainFitConfig
             Verbose = ReadBool(text, "verbose", false);
             var m = Regex.Match(text, "alsoFit\\s*=\\s*\"([^\"]*)\"", RegexOptions.IgnoreCase);
             if (m.Success) SetAlsoFit(m.Groups[1].Value);
-            if (AlsoFit.Length > 0) Log.Out($"[KitsuneTerrainFit] Also fitting: {AlsoFit}");
+            AlsoFitHeight = ReadFraction(text, "alsoFitHeight", DefaultAlsoFitHeight);
+            if (AlsoFit.Length > 0)
+                Log.Out($"[KitsuneTerrainFit] Also fitting: {AlsoFit} (ground up to {AlsoFitHeight:0.##} of their height)");
         }
         catch (Exception ex)
         {
@@ -76,6 +88,17 @@ public static class TerrainFitConfig
             if (p.Length > 0) parts.Add(Regex.Escape(p).Replace("\\*", ".*"));
         }
         return parts.Count == 0 ? null : new Regex("^(?:" + string.Join("|", parts) + ")$", RegexOptions.IgnoreCase);
+    }
+
+    private static double ReadFraction(string text, string name, double fallback)
+    {
+        var m = Regex.Match(text, name + "\\s*=\\s*\"([^\"]+)\"", RegexOptions.IgnoreCase);
+        if (!m.Success) return fallback;
+        if (double.TryParse(m.Groups[1].Value.Trim(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var v) && v >= 0 && v <= 1)
+            return v;
+        Log.Warning($"[KitsuneTerrainFit] Settings.xml '{name}' value '{m.Groups[1].Value}' isn't a number from 0 to 1; using {fallback}.");
+        return fallback;
     }
 
     private static bool ReadBool(string text, string name, bool fallback)

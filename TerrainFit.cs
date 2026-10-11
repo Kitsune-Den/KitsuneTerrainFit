@@ -32,9 +32,11 @@ public struct FitResult
 /// terrain flat right up to the cube, with the extra bit of surface hidden
 /// inside the cube itself.
 ///
-/// Surface height inside a voxel is the linear zero-crossing between that
-/// voxel's density and the one above: t = -d / (u - d). Solving for d gives
-/// d = -t * u / (1 - t).
+/// Density is sampled at block centres, so the surface sits at the linear
+/// zero-crossing between a voxel's centre and the centre above it:
+/// t = -d / (u - d), measured up from the centre. t = 0.5 is the top of the
+/// block, which is where flat natural ground sits (t ~ 0.504 in game).
+/// Solving for d gives d = -t * u / (1 - t).
 /// </summary>
 public static class TerrainFit
 {
@@ -77,8 +79,16 @@ public static class TerrainFit
     /// True for blocks whose geometry fully covers their voxel, so any terrain
     /// surface we pull inside them stays hidden.
     /// </summary>
-    public static bool IsFittableCube(BlockValue bv, out string reason)
+    public static bool IsFittableCube(BlockValue bv, out string reason) => IsFittableCube(bv, out reason, out _);
+
+    /// <param name="maxTop">
+    /// Highest surface crossing (t, see class notes) the fill may reach inside
+    /// this block. 1 for full cubes, which hide anything; lower for blocks like
+    /// farm plots whose soil sits below the rim.
+    /// </param>
+    public static bool IsFittableCube(BlockValue bv, out string reason, out double maxTop)
     {
+        maxTop = 1.0;
         reason = "not-a-building-block";
         if (bv.isair || bv.isTerrain || bv.isWater || bv.ischild) return false;
 
@@ -96,7 +106,11 @@ public static class TerrainFit
         // Blocks like farm plots aren't six full faces (open soil top, sides
         // that cull against neighbours) but their walls still hide the fill.
         reason = null;
-        if (TerrainFitConfig.IsAlsoFit(block.GetBlockName())) return true;
+        if (TerrainFitConfig.IsAlsoFit(block.GetBlockName()))
+        {
+            maxTop = TerrainFitConfig.AlsoFitHeight - 0.5;
+            return true;
+        }
 
         reason = "not-a-full-cube";
         const int allSixFaces = 63;
@@ -111,8 +125,10 @@ public static class TerrainFit
     /// <paramref name="pending"/> holds positions changing in the same batch;
     /// their current contents are about to be replaced, so they're ignored.
     /// </summary>
-    public static FitResult Solve(WorldBase world, Vector3i pos, ICollection<Vector3i> pending)
+    public static FitResult Solve(WorldBase world, Vector3i pos, ICollection<Vector3i> pending, double maxTop = 1.0)
     {
+        if (maxTop <= 0) return FitResult.Skip("fill-height-off");
+
         var above = pos + Up;
         if (pending.Contains(above) || !IsOpen(world, above))
             return FitResult.Skip("covered", "the space above isn't open");
@@ -178,6 +194,10 @@ public static class TerrainFit
 
         // Built into a cut in a hillside: pull the wall's surface into the cube
         // so there's no sliver of gap between the wall and the cube face.
+        // Vanilla already puts a wall flush against an open-topped block, and
+        // any fill would pull the hillside in over its rim.
+        if (wallSides > 0 && maxTop < 1.0)
+            return FitResult.Skip("against-a-wall", contacts);
         if (wallSides > 0)
             return new FitResult { Apply = true, Density = 1, Mode = "WALL", Detail = contacts };
 
@@ -185,7 +205,7 @@ public static class TerrainFit
         {
             double target = Math.Min(weighted / weight, lowest + MaxRiseAboveLowest);
             bool canForce = surfaceSides >= 2 && highest - lowest <= MaxSpreadToForce;
-            return Fitted("SURFACE", target, u, canForce ? 128 : UnforcedLimit, Math.Round,
+            return Fitted("SURFACE", Math.Min(target, maxTop), u, canForce ? 128 : UnforcedLimit, Math.Round,
                 contacts + string.Format(CultureInfo.InvariantCulture, ", ground {0:F3}-{1:F3}", lowest, highest));
         }
 
@@ -194,12 +214,12 @@ public static class TerrainFit
         if (lowerSides > 0)
         {
             double closeness = Clamp((highestLower + LowerReach) / LowerReach, 0, 1);
-            return Fitted("LOWER", LowerFillMax * closeness, u, UnforcedLimit, Math.Floor, contacts);
+            return Fitted("LOWER", Math.Min(LowerFillMax * closeness, maxTop), u, UnforcedLimit, Math.Floor, contacts);
         }
 
         if (surfaceCorners > 0)
         {
-            double target = Clamp(lowestCorner - MaxRiseAboveLowest, 0, CornerFillMax);
+            double target = Clamp(lowestCorner - MaxRiseAboveLowest, 0, Math.Min(CornerFillMax, maxTop));
             return Fitted("CORNER", target, u, UnforcedLimit, Math.Floor, contacts);
         }
 

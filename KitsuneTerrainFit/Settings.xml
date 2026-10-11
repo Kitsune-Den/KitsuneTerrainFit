@@ -11,11 +11,16 @@
 	          Comma separated block names; * matches anything. Farm plots by
 	          default. Set alsoFit="" to fit only plain cubes.
 
+	alsoFitHeight = how far up an alsoFit block the ground may come, as a
+	          fraction of its height. 0.75 keeps the ground nearly flush with
+	          a farm plot's rim while staying under its soil. 1 would bury the
+	          soil; 0.5 or less turns the fill off.
+
 	verbose = also log every placement that was looked at and skipped, with
 	          the reason. Off by default; fitted blocks are always logged.
 	          Can be flipped at runtime with `tfit verbose on|off`.
 
 	Edit and restart the server. If this file is missing or unreadable the
-	mod falls back to enabled="true" alsoFit="farmPlotBlock*" verbose="false".
+	mod falls back to enabled="true" alsoFit="farmPlotBlock*" alsoFitHeight="0.75" verbose="false".
 -->
-<KitsuneTerrainFit enabled="true" alsoFit="farmPlotBlock*" verbose="false" />
+<KitsuneTerrainFit enabled="true" alsoFit="farmPlotBlock*" alsoFitHeight="0.75" verbose="false" />
