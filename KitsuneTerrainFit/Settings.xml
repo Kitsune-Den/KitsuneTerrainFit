@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+	KitsuneTerrainFit settings (server-side).
+
+	enabled = fit newly placed cubes to the terrain around them.
+	          "false" leaves placement fully vanilla. The `tfit refit` console
+	          command still works either way.
+
+	verbose = also log every placement that was looked at and skipped, with
+	          the reason. Off by default; fitted blocks are always logged.
+	          Can be flipped at runtime with `tfit verbose on|off`.
+
+	Edit and restart the server. If this file is missing or unreadable the
+	mod falls back to enabled="true" verbose="false".
+-->
+<KitsuneTerrainFit enabled="true" verbose="false" />

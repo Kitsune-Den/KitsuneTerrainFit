@@ -1,0 +1,11 @@
+bin/
+obj/
+7dtd-binaries/
+.idea/
+.vs/
+.vscode/
+*.user
+*.swp
+*.bak
+.DS_Store
+Thumbs.db
