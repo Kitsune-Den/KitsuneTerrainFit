@@ -9,3 +9,6 @@ obj/
 *.bak
 .DS_Store
 Thumbs.db
+
+# Release packaging artifacts
+*.zip
