@@ -75,6 +75,9 @@ public static class TerrainFit
         new Vector3i(1, 0, 1), new Vector3i(-1, 0, 1), new Vector3i(1, 0, -1), new Vector3i(-1, 0, -1),
     };
 
+    /// <summary>Keep the slope a hair under the top edge rather than exactly on it.</summary>
+    private const double EdgeMargin = 0.01;
+
     /// <summary>
     /// True for blocks whose geometry fully covers their voxel, so any terrain
     /// surface we pull inside them stays hidden.
@@ -139,10 +142,14 @@ public static class TerrainFit
         double lowest = double.PositiveInfinity, highest = double.NegativeInfinity;
         double highestLower = double.NegativeInfinity;
         double lowestCorner = double.PositiveInfinity;
+        // Ground height per side for the top-edge limit; anything that isn't a
+        // surface counts as 0, which is the stricter assumption.
+        var sideHeight = new double[4];
+        int wallCorners = 0;
 
-        foreach (var offset in Sides)
+        for (int i = 0; i < Sides.Length; i++)
         {
-            var n = pos + offset;
+            var n = pos + Sides[i];
             if (pending.Contains(n)) continue;
             if (IsWater(world, n) || IsWater(world, n + Up))
                 return FitResult.Skip("water");
@@ -156,6 +163,7 @@ public static class TerrainFit
                 else if (!pending.Contains(n + Up) && IsOpen(world, n + Up))
                 {
                     double h = Crossing(world, n, n + Up);
+                    sideHeight[i] = h;
                     surfaceSides++;
                     weighted += SideWeight * h;
                     weight += SideWeight;
@@ -170,14 +178,18 @@ public static class TerrainFit
             }
         }
 
-        foreach (var offset in Corners)
+        for (int i = 0; i < Corners.Length; i++)
         {
-            var n = pos + offset;
+            var n = pos + Corners[i];
             if (pending.Contains(n) || pending.Contains(n + Up)) continue;
             if (IsWater(world, n) || IsWater(world, n + Up))
                 return FitResult.Skip("water");
 
-            if (IsSolidTerrain(world, n) && IsOpen(world, n + Up))
+            if (IsSolidTerrain(world, n) && IsSolidTerrain(world, n + Up))
+            {
+                wallCorners++;
+            }
+            else if (IsSolidTerrain(world, n) && IsOpen(world, n + Up))
             {
                 double h = Crossing(world, n, n + Up);
                 surfaceCorners++;
@@ -190,16 +202,29 @@ public static class TerrainFit
         }
 
         string contacts = string.Format(CultureInfo.InvariantCulture,
-            "sides {0}, corners {1}, walls {2}, lower {3}", surfaceSides, surfaceCorners, wallSides, lowerSides);
+            "sides {0}, corners {1}, walls {2}, lower {3}", surfaceSides, surfaceCorners, wallSides + wallCorners, lowerSides);
 
-        // Built into a cut in a hillside: pull the wall's surface into the cube
-        // so there's no sliver of gap between the wall and the cube face.
-        // Vanilla already puts a wall flush against an open-topped block, and
-        // any fill would pull the hillside in over its rim.
-        if (wallSides > 0 && maxTop < 1.0)
+        // Against a terrain wall vanilla already does the right thing: air
+        // density on the block puts the wall's surface exactly on its face.
+        // Any other value tilts that surface, and solid density drags the
+        // hillside up over the block's top edge.
+        if (wallSides > 0 || wallCorners > 0)
             return FitResult.Skip("against-a-wall", contacts);
-        if (wallSides > 0)
-            return new FitResult { Apply = true, Density = 1, Mode = "WALL", Detail = contacts };
+
+        // The mesh joins neighbouring columns with straight slopes, so at the
+        // block's face the ground sits halfway between the neighbour's height
+        // and ours. Keep that at or under the top edge (t = 0.5 at the face):
+        //   (h_side + t) / 2 <= 0.5
+        // Otherwise ground higher than the block, like an uphill neighbour,
+        // spills over the block and buries its edge. Corners aren't limited:
+        // a diagonal limit held fills right down on gentle slopes and brought
+        // the trench back, for a corner that's barely visible either way.
+        double ceiling = 1.0;
+        for (int i = 0; i < 4; i++)
+            ceiling = Math.Min(ceiling, 1.0 - sideHeight[i]);
+        maxTop = Math.Min(maxTop, ceiling - EdgeMargin);
+        if (maxTop <= 0.005)
+            return FitResult.Skip("would-bury", contacts + string.Format(CultureInfo.InvariantCulture, ", room {0:F3}", ceiling));
 
         if (surfaceSides > 0)
         {
