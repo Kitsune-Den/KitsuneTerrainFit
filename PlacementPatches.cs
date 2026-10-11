@@ -105,15 +105,19 @@ public static class PlacementPatches
             if (!change.blockValueRef.TryGetBlockPos(out var pos)) continue;
             if (pos.y < 2 || pos.y > 253) continue;
 
-            // Only fresh placements into open space. Upgrades, repairs and
-            // swaps keep whatever density the block already has.
+            // Only into space that's still air-side: open ground, or a block
+            // that was never fitted (e.g. a frame being upgraded). Anything
+            // already fitted keeps its density.
             if (!TerrainFit.IsOpen(world, pos)) continue;
-            // Something upstream already chose a density; leave it be.
-            if (change.bChangeDensity) continue;
+            // Vanilla's Block.PlaceBlock always sends DensityAir with a
+            // placement, so only a solid density means someone upstream chose one.
+            if (change.bChangeDensity && change.density <= 0) continue;
 
             if (!TerrainFit.IsFittableCube(change.blockValue, out var notCube))
             {
-                if (TerrainFitConfig.Verbose)
+                var bv = change.blockValue;
+                // Digging, terrain and water aren't builds; not worth a line even in verbose.
+                if (TerrainFitConfig.Verbose && !bv.isair && !bv.isTerrain && !bv.isWater)
                     Log.Out($"[KitsuneTerrainFit] skip {Name(change.blockValue)} at {pos} by entity {change.changedByEntityId}: {notCube}");
                 continue;
             }

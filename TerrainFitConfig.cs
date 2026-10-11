@@ -17,10 +17,24 @@ public static class TerrainFitConfig
     /// <summary>Log skipped placements too, not just fitted ones.</summary>
     public static bool Verbose { get; set; }
 
+    public const string DefaultAlsoFit = "farmPlotBlock*";
+
+    /// <summary>
+    /// Block names fitted even though they aren't six full faces. Comma
+    /// separated; '*' matches any run of characters.
+    /// </summary>
+    public static string AlsoFit { get; private set; } = DefaultAlsoFit;
+
+    private static Regex alsoFitRegex = Compile(DefaultAlsoFit);
+
+    public static bool IsAlsoFit(string blockName) =>
+        alsoFitRegex != null && blockName != null && alsoFitRegex.IsMatch(blockName);
+
     public static void Load(string modPath)
     {
         Enabled = true;
         Verbose = false;
+        SetAlsoFit(DefaultAlsoFit);
         try
         {
             if (string.IsNullOrEmpty(modPath)) return;
@@ -32,14 +46,36 @@ public static class TerrainFitConfig
                 return;
             }
 
-            var text = File.ReadAllText(path);
+            // Drop comments first: the explanatory one mentions attribute
+            // examples like alsoFit="" that would otherwise match first.
+            var text = Regex.Replace(File.ReadAllText(path), "<!--.*?-->", "", RegexOptions.Singleline);
             Enabled = ReadBool(text, "enabled", true);
             Verbose = ReadBool(text, "verbose", false);
+            var m = Regex.Match(text, "alsoFit\\s*=\\s*\"([^\"]*)\"", RegexOptions.IgnoreCase);
+            if (m.Success) SetAlsoFit(m.Groups[1].Value);
+            if (AlsoFit.Length > 0) Log.Out($"[KitsuneTerrainFit] Also fitting: {AlsoFit}");
         }
         catch (Exception ex)
         {
             Log.Warning($"[KitsuneTerrainFit] Failed to read Settings.xml ({ex.Message}); using defaults.");
         }
+    }
+
+    private static void SetAlsoFit(string patterns)
+    {
+        AlsoFit = (patterns ?? "").Trim();
+        alsoFitRegex = Compile(AlsoFit);
+    }
+
+    private static Regex Compile(string patterns)
+    {
+        var parts = new System.Collections.Generic.List<string>();
+        foreach (var raw in patterns.Split(','))
+        {
+            var p = raw.Trim();
+            if (p.Length > 0) parts.Add(Regex.Escape(p).Replace("\\*", ".*"));
+        }
+        return parts.Count == 0 ? null : new Regex("^(?:" + string.Join("|", parts) + ")$", RegexOptions.IgnoreCase);
     }
 
     private static bool ReadBool(string text, string name, bool fallback)

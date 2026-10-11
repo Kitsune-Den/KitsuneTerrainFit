@@ -93,6 +93,11 @@ public static class TerrainFit
         reason = "not-opaque";
         if (block.MeshIndex != MeshDescription.MESH_OPAQUE) return false;
 
+        // Blocks like farm plots aren't six full faces (open soil top, sides
+        // that cull against neighbours) but their walls still hide the fill.
+        reason = null;
+        if (TerrainFitConfig.IsAlsoFit(block.GetBlockName())) return true;
+
         reason = "not-a-full-cube";
         const int allSixFaces = 63;
         if ((block.shape.getFacesDrawnFullBitfield(bv) & allSixFaces) != allSixFaces) return false;
@@ -228,15 +233,16 @@ public static class TerrainFit
         return bv.isTerrain && world.GetDensity(p.x, p.y, p.z) < 0;
     }
 
-    /// <summary>Air or grass-like cover with positive (air-side) density.</summary>
+    /// <summary>
+    /// Air-side as far as the terrain mesh is concerned: positive density and
+    /// not terrain or water. Includes grass, crops and unfitted blocks, which
+    /// the mesher treats exactly like air.
+    /// </summary>
     public static bool IsOpen(WorldBase world, Vector3i p)
     {
         if (world.GetDensity(p.x, p.y, p.z) <= 0) return false;
         var bv = world.GetBlock(p.x, p.y, p.z);
-        if (bv.isTerrain || bv.isWater) return false;
-        if (bv.isair) return true;
-        var block = bv.Block;
-        return block != null && block.CanBlocksReplaceOrGroundCover();
+        return !bv.isTerrain && !bv.isWater && !world.IsWater(p);
     }
 
     private static bool IsWater(WorldBase world, Vector3i p) =>

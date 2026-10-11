@@ -17,7 +17,7 @@ This makes the ground meet the block flush.
 
 7D2D draws terrain with marching cubes over a density value per voxel: negative is solid ground, positive is air. A block you place keeps the air density of the space it went into, so the terrain mesh treats it as a hole and slopes down into it. That's the trench.
 
-When you place a **full, opaque cube** into open space next to the ground, this gives the cube a density that puts the terrain surface at the same height as the ground around it. The terrain then runs flat right up to the cube, and the bit of surface that ends up inside the cube is hidden by the cube.
+When you place a **full, opaque cube** (or a **farm plot**) next to the ground, this gives the cube a density that puts the terrain surface at the same height as the ground around it. The terrain then runs flat right up to the cube, and the bit of surface that ends up inside the cube is hidden by the cube.
 
 | Situation | What it does |
 |---|---|
@@ -25,7 +25,7 @@ When you place a **full, opaque cube** into open space next to the ground, this 
 | Cube sitting just above lower ground | Raises the ground under its edges to meet it. Closer ground gets more fill |
 | Ground only diagonal to the cube | A small, capped fill |
 | Cube built into a cut in a hillside | Pulls the wall's surface into the cube so there's no sliver between them |
-| Water next to the cube, something on top of it, not a full cube, glass, anything with a tile entity, multi-blocks | Leaves it vanilla |
+| Water next to the cube, ground or another fitted block on top of it, not a full cube, glass, anything with a tile entity, multi-blocks | Leaves it vanilla |
 
 Breaking the block puts the voxel back to air the normal vanilla way. Upgrading or repairing it keeps the fitted density.
 
@@ -48,10 +48,12 @@ tfit verbose on         also log every placement it skipped, and why
 `Settings.xml` in the mod folder:
 
 ```xml
-<KitsuneTerrainFit enabled="true" verbose="false" />
+<KitsuneTerrainFit enabled="true" alsoFit="farmPlotBlock*" verbose="false" />
 ```
 
 `enabled="false"` makes placement fully vanilla. `tfit` still works.
+
+`alsoFit` lists blocks to fit even though they aren't six full faces, as long as their walls hide the ground tucked inside. Farm plots qualify: an open soil top and sides that cull against neighbours, but solid walls all the way round. Comma separated, `*` matches anything, `alsoFit=""` turns it off.
 
 ## How it hooks in
 
