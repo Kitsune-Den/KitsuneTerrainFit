@@ -16,11 +16,18 @@
 	          a farm plot's rim while staying under its soil. 1 would bury the
 	          soil; 0.5 or less turns the fill off.
 
+	hillside = how cubes on slopes and in hill cuts are fitted.
+	          "embed": filled to the ground around them, so the hill washes
+	                   over the uphill edge and they look sunk into the slope.
+	          "clear": the ground never rises over a cube's top edge, and cubes
+	                   against a cut in the hill are left vanilla.
+	          Farm plots always keep their rim clear either way.
+
 	verbose = also log every placement that was looked at and skipped, with
 	          the reason. Off by default; fitted blocks are always logged.
 	          Can be flipped at runtime with `tfit verbose on|off`.
 
 	Edit and restart the server. If this file is missing or unreadable the
-	mod falls back to enabled="true" alsoFit="farmPlotBlock*" alsoFitHeight="0.75" verbose="false".
+	mod falls back to enabled="true" alsoFit="farmPlotBlock*" alsoFitHeight="0.75" hillside="embed" verbose="false".
 -->
-<KitsuneTerrainFit enabled="true" alsoFit="farmPlotBlock*" alsoFitHeight="0.75" verbose="false" />
+<KitsuneTerrainFit enabled="true" alsoFit="farmPlotBlock*" alsoFitHeight="0.75" hillside="embed" verbose="false" />

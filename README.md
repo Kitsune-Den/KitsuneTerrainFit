@@ -22,10 +22,10 @@ When you place a **full, opaque cube** (or a **farm plot**) next to the ground, 
 | Situation | What it does |
 |---|---|
 | Ground beside the cube at the same level | Matches the cube to the surrounding ground height, never higher than the lowest neighbour by more than a hair (so no lip pokes out) |
-| Cube on a slope | Fills only as much as keeps the uphill ground from spilling over the cube's top edge |
+| Cube on a slope | `hillside="embed"` (default): fitted to the ground around it, so the hill washes over the uphill edge and it looks sunk in. `hillside="clear"`: fills only as much as keeps the ground under the top edge |
 | Cube sitting just above lower ground | Raises the ground under its edges to meet it. Closer ground gets more fill |
 | Ground only diagonal to the cube | A small, capped fill |
-| Cube built into a cut in a hillside | Leaves it vanilla: air density already puts the hillside flush against the cube's face |
+| Cube built into a cut in a hillside | `embed`: pulls the hill in over the edge. `clear`: leaves it vanilla, since air density already puts the hillside flush against the face |
 | Water next to the cube, ground or another fitted block on top of it, not a full cube, glass, anything with a tile entity, multi-blocks | Leaves it vanilla |
 
 Breaking the block puts the voxel back to air the normal vanilla way. Upgrading or repairing it keeps the fitted density.
@@ -49,14 +49,14 @@ tfit verbose on         also log every placement it skipped, and why
 `Settings.xml` in the mod folder:
 
 ```xml
-<KitsuneTerrainFit enabled="true" alsoFit="farmPlotBlock*" alsoFitHeight="0.75" verbose="false" />
+<KitsuneTerrainFit enabled="true" alsoFit="farmPlotBlock*" alsoFitHeight="0.75" hillside="embed" verbose="false" />
 ```
 
 `enabled="false"` makes placement fully vanilla. `tfit` still works.
 
 `alsoFit` lists blocks to fit even though they aren't six full faces, as long as their walls hide the ground tucked inside. Farm plots qualify: an open soil top and sides that cull against neighbours, but solid walls all the way round. Comma separated, `*` matches anything, `alsoFit=""` turns it off.
 
-For every block there's also a top-edge limit. The terrain mesh joins neighbouring columns with straight slopes, so at a block's face the ground sits halfway between the neighbour's height and the block's. The fill is capped so that halfway point never rises above the block's top edge, otherwise higher ground next door spills over and buries the edge.
+With `hillside="clear"`, and always for farm plots, there's also a top-edge limit. The terrain mesh joins neighbouring columns with straight slopes, so at a block's face the ground sits halfway between the neighbour's height and the block's. The fill is capped so that halfway point never rises above the block's top edge, otherwise higher ground next door spills over and buries the edge.
 
 `alsoFitHeight` caps how far up those blocks the ground may come, as a fraction of their height. A farm plot's soil sits a little below its rim, so fitting it like a cube (all the way to the top) buries the soil. At the default 0.75 the ground stays just under the soil and still meets the rim with only a slight bevel. Open-topped blocks dug into a hillside are left vanilla, because vanilla already puts the wall flush against them and a fill would pull the hill in over the rim.
 

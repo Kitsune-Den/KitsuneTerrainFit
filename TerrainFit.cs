@@ -204,11 +204,18 @@ public static class TerrainFit
         string contacts = string.Format(CultureInfo.InvariantCulture,
             "sides {0}, corners {1}, walls {2}, lower {3}", surfaceSides, surfaceCorners, wallSides + wallCorners, lowerSides);
 
-        // Against a terrain wall vanilla already does the right thing: air
-        // density on the block puts the wall's surface exactly on its face.
-        // Any other value tilts that surface, and solid density drags the
-        // hillside up over the block's top edge.
-        if (wallSides > 0 || wallCorners > 0)
+        // Open-topped blocks (maxTop < 1) and hillside="clear" keep the top
+        // edge visible. hillside="embed" lets the hill wash over a cube's
+        // edge so it looks sunk into the slope.
+        bool keepEdgeClear = maxTop < 1.0 || !TerrainFitConfig.EmbedInHillside;
+
+        // Against a terrain wall vanilla already keeps the edge clear: air
+        // density puts the wall's surface exactly on the block's face. Any
+        // other value tilts that surface; +1 pulls the hill in over the edge,
+        // which is the embedded look.
+        if (wallSides > 0 && !keepEdgeClear)
+            return new FitResult { Apply = true, Density = 1, Mode = "WALL", Detail = contacts };
+        if (wallSides > 0 || (wallCorners > 0 && keepEdgeClear))
             return FitResult.Skip("against-a-wall", contacts);
 
         // The mesh joins neighbouring columns with straight slopes, so at the
@@ -220,9 +227,12 @@ public static class TerrainFit
         // a diagonal limit held fills right down on gentle slopes and brought
         // the trench back, for a corner that's barely visible either way.
         double ceiling = 1.0;
-        for (int i = 0; i < 4; i++)
-            ceiling = Math.Min(ceiling, 1.0 - sideHeight[i]);
-        maxTop = Math.Min(maxTop, ceiling - EdgeMargin);
+        if (keepEdgeClear)
+        {
+            for (int i = 0; i < 4; i++)
+                ceiling = Math.Min(ceiling, 1.0 - sideHeight[i]);
+            maxTop = Math.Min(maxTop, ceiling - EdgeMargin);
+        }
         if (maxTop <= 0.005)
             return FitResult.Skip("would-bury", contacts + string.Format(CultureInfo.InvariantCulture, ", room {0:F3}", ceiling));
 

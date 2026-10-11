@@ -36,6 +36,14 @@ public static class TerrainFitConfig
     /// </summary>
     public static double AlsoFitHeight { get; private set; } = DefaultAlsoFitHeight;
 
+    /// <summary>
+    /// hillside="embed" (default): cubes on slopes and in hill cuts are filled
+    /// so the hill washes over their edge and they look sunk in.
+    /// hillside="clear": the ground never rises over a cube's top edge, and
+    /// cubes against a hill cut stay vanilla.
+    /// </summary>
+    public static bool EmbedInHillside { get; private set; } = true;
+
     public static bool IsAlsoFit(string blockName) =>
         alsoFitRegex != null && blockName != null && alsoFitRegex.IsMatch(blockName);
 
@@ -45,6 +53,7 @@ public static class TerrainFitConfig
         Verbose = false;
         SetAlsoFit(DefaultAlsoFit);
         AlsoFitHeight = DefaultAlsoFitHeight;
+        EmbedInHillside = true;
         try
         {
             if (string.IsNullOrEmpty(modPath)) return;
@@ -64,6 +73,15 @@ public static class TerrainFitConfig
             var m = Regex.Match(text, "alsoFit\\s*=\\s*\"([^\"]*)\"", RegexOptions.IgnoreCase);
             if (m.Success) SetAlsoFit(m.Groups[1].Value);
             AlsoFitHeight = ReadFraction(text, "alsoFitHeight", DefaultAlsoFitHeight);
+            var hill = Regex.Match(text, "hillside\\s*=\\s*\"([^\"]*)\"", RegexOptions.IgnoreCase);
+            if (hill.Success)
+            {
+                var v = hill.Groups[1].Value.Trim();
+                if (v.Equals("clear", StringComparison.OrdinalIgnoreCase)) EmbedInHillside = false;
+                else if (!v.Equals("embed", StringComparison.OrdinalIgnoreCase))
+                    Log.Warning($"[KitsuneTerrainFit] Settings.xml 'hillside' value '{v}' isn't embed or clear; using embed.");
+            }
+            Log.Out($"[KitsuneTerrainFit] Hillside cubes: {(EmbedInHillside ? "embed" : "clear")}");
             if (AlsoFit.Length > 0)
                 Log.Out($"[KitsuneTerrainFit] Also fitting: {AlsoFit} (ground up to {AlsoFitHeight:0.##} of their height)");
         }
