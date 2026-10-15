@@ -23,11 +23,21 @@
 	                   against a cut in the hill are left vanilla.
 	          Farm plots always keep their rim clear either way.
 
+	shapes = what happens around upright shapes that aren't plain cubes:
+	          rounded corners, pillars, quarter rounds, poles.
+	          "keep":    on level ground they're fitted like a cube; anywhere
+	                     else they keep the ground density their space already
+	                     had, so the ground doesn't dip into a trench around
+	                     them. Cubes next to them follow the same rule.
+	          "vanilla": only cubes and alsoFit blocks are touched.
+	          Steps, ramps, plates and shapes lying on their side are always
+	          vanilla: ground at its natural height would poke through them.
+
 	verbose = also log every placement that was looked at and skipped, with
 	          the reason. Off by default; fitted blocks are always logged.
 	          Can be flipped at runtime with `tfit verbose on|off`.
 
 	Edit and restart the server. If this file is missing or unreadable the
-	mod falls back to enabled="true" alsoFit="farmPlotBlock*" alsoFitHeight="0.75" hillside="embed" verbose="false".
+	mod falls back to enabled="true" alsoFit="farmPlotBlock*" alsoFitHeight="0.75" hillside="embed" shapes="keep" verbose="false".
 -->
-<KitsuneTerrainFit enabled="true" alsoFit="farmPlotBlock*" alsoFitHeight="0.75" hillside="embed" verbose="false" />
+<KitsuneTerrainFit enabled="true" alsoFit="farmPlotBlock*" alsoFitHeight="0.75" hillside="embed" shapes="keep" verbose="false" />

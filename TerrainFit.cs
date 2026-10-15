@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using UnityEngine;
 
 /// <summary>
 /// What to do with one cube: the density to give it, or why it's left alone.
@@ -86,6 +87,23 @@ public static class TerrainFit
     private const double EdgeMargin = 0.01;
 
     /// <summary>
+    /// Skip reason when an upright shape is involved and the ground isn't
+    /// level enough for a fill that stays at or under the ground around it.
+    /// </summary>
+    public const string NotLevel = "not-level-ground";
+
+    /// <summary>A face whose normal is this close to level counts as a vertical wall.</summary>
+    private const float WallTolerance = 0.02f;
+
+    /// <summary>A flat face this close to the block's bottom or top counts as its floor or lid.</summary>
+    private const float EndTolerance = 0.01f;
+
+    private static readonly Vector3 BlockCentre = new Vector3(0.5f, 0.5f, 0.5f);
+
+    /// <summary>IsUpright per block type and rotation; walking the mesh isn't free.</summary>
+    private static readonly Dictionary<int, bool> uprightCache = new Dictionary<int, bool>();
+
+    /// <summary>
     /// True for blocks whose geometry fully covers their voxel, so any terrain
     /// surface we pull inside them stays hidden.
     /// </summary>
@@ -131,11 +149,111 @@ public static class TerrainFit
     }
 
     /// <summary>
+    /// True for blocks that run straight up and down at their current
+    /// rotation: every surface is a vertical wall, or flat on the block's
+    /// bottom or top. Rounded corners, pillars, quarter rounds, poles, and
+    /// full cubes too. Every spot inside one is either solid from bottom to
+    /// top or open from bottom to top, so ground at its natural height ends up
+    /// hidden inside the block or sitting in open air, the way it was before
+    /// the block went down. A step, ramp, plate or a shape lying on its side
+    /// has a surface partway up that ground could poke through.
+    /// </summary>
+    public static bool IsUpright(BlockValue bv)
+    {
+        if (bv.isair || bv.isTerrain || bv.isWater || bv.ischild) return false;
+        var block = bv.Block;
+        if (block == null || !(block.shape is BlockShapeNew shape)) return false;
+        if (block.HasTileEntity || block.isMultiBlock) return false;
+        if (block.MeshIndex != MeshDescription.MESH_OPAQUE) return false;
+
+        int rotation = bv.rotation & 31;
+        int key = (bv.type << 5) | rotation;
+        if (!uprightCache.TryGetValue(key, out bool upright))
+        {
+            upright = IsUprightMesh(shape, rotation);
+            uprightCache[key] = upright;
+        }
+        return upright;
+    }
+
+    private static bool IsUprightMesh(BlockShapeNew shape, int rotation)
+    {
+        var meshes = shape.visualMeshes;
+        if (meshes == null) return false;
+
+        // Same block-local transform the game uses for shape bounds.
+        var q = BlockShapeNew.GetRotationStatic(rotation);
+        int faces = 0;
+        foreach (var mesh in meshes)
+        {
+            if (mesh == null) continue;
+            var v = mesh.Vertices;
+            var idx = mesh.Indices;
+            for (int i = 0; i + 2 < idx.Count; i += 3)
+            {
+                var a = q * (v[idx[i]] - BlockCentre) + BlockCentre;
+                var b = q * (v[idx[i + 1]] - BlockCentre) + BlockCentre;
+                var c = q * (v[idx[i + 2]] - BlockCentre) + BlockCentre;
+                var normal = Vector3.Cross(b - a, c - a);
+                float length = normal.magnitude;
+                if (length < 1e-6f) continue;
+                faces++;
+
+                float up = Mathf.Abs(normal.y / length);
+                if (up < WallTolerance) continue;
+                if (up > 1f - WallTolerance)
+                {
+                    float low = Mathf.Min(a.y, Mathf.Min(b.y, c.y));
+                    float high = Mathf.Max(a.y, Mathf.Max(b.y, c.y));
+                    if (high < EndTolerance || low > 1f - EndTolerance) continue;
+                }
+                return false;
+            }
+        }
+        return faces > 0;
+    }
+
+    /// <summary>
+    /// For an upright shape placed into open space: keep the density the
+    /// space already had instead of vanilla's full air. Natural air just
+    /// above the ground sits well under full air, and resetting it to full air
+    /// is what pulls the ground down into the trench. Keeping it leaves the
+    /// ground exactly where it was, including in the cut-away of a rounded
+    /// corner, where a cube's fill would show as a lump of dirt.
+    /// </summary>
+    public static FitResult Keep(WorldBase world, Vector3i pos, ICollection<Vector3i> pending)
+    {
+        int d = world.GetDensity(pos.x, pos.y, pos.z);
+        if (d >= MarchingCubes.DensityAir)
+            return FitResult.Skip("already-air", "no natural ground density to keep");
+
+        // A floor, step or slab beside it would lose the dip vanilla gives it.
+        foreach (var offset in Around)
+        {
+            var n = pos + offset;
+            if (pending.Contains(n)) continue;
+            var nbv = world.GetBlock(n.x, n.y, n.z);
+            if (ShowsFill(nbv) && !IsUpright(nbv))
+                return FitResult.Skip("next-to-partial-block");
+        }
+
+        return new FitResult
+        {
+            Apply = true,
+            Density = (sbyte)d,
+            Mode = "KEEP",
+            Detail = string.Format(CultureInfo.InvariantCulture, "ground density {0}", d),
+        };
+    }
+
+    /// <summary>
     /// Works out the density for a full cube at <paramref name="pos"/>.
     /// <paramref name="pending"/> holds positions changing in the same batch;
     /// their current contents are about to be replaced, so they're ignored.
+    /// <paramref name="levelOnly"/> allows only the level SURFACE fit, for an
+    /// upright shape whose cut-away would show anything higher.
     /// </summary>
-    public static FitResult Solve(WorldBase world, Vector3i pos, ICollection<Vector3i> pending, double maxTop = 1.0)
+    public static FitResult Solve(WorldBase world, Vector3i pos, ICollection<Vector3i> pending, double maxTop = 1.0, bool levelOnly = false)
     {
         if (maxTop <= 0) return FitResult.Skip("fill-height-off");
 
@@ -148,12 +266,18 @@ public static class TerrainFit
         // next to this block: outdoors that's the ramp that closes the trench.
         // A floor, step, slab or door there can't hide it, so dirt would poke
         // up through it. Only fit when every neighbour is open, ground, or a
-        // block that covers its whole space.
+        // block that covers its whole space. An upright shape like a rounded
+        // corner shows the fill in its cut-away, which is fine for a level
+        // fill (that's just the ground carrying on) but not for one that
+        // raises the ground above its surroundings.
         foreach (var offset in Around)
         {
             var n = pos + offset;
-            if (!pending.Contains(n) && ShowsFill(world.GetBlock(n.x, n.y, n.z)))
-                return FitResult.Skip("next-to-partial-block");
+            if (pending.Contains(n)) continue;
+            var nbv = world.GetBlock(n.x, n.y, n.z);
+            if (!ShowsFill(nbv)) continue;
+            if (!IsUpright(nbv)) return FitResult.Skip("next-to-partial-block");
+            levelOnly = true;
         }
 
         int surfaceSides = 0, wallSides = 0, lowerSides = 0, surfaceCorners = 0;
@@ -233,7 +357,9 @@ public static class TerrainFit
         // other value tilts that surface; +1 pulls the hill in over the edge,
         // which is the embedded look.
         if (wallSides > 0 && !keepEdgeClear)
-            return new FitResult { Apply = true, Density = 1, Mode = "WALL", Detail = contacts };
+            return levelOnly
+                ? FitResult.Skip(NotLevel, contacts)
+                : new FitResult { Apply = true, Density = 1, Mode = "WALL", Detail = contacts };
         if (wallSides > 0 || (wallCorners > 0 && keepEdgeClear))
             return FitResult.Skip("against-a-wall", contacts);
 
@@ -262,6 +388,10 @@ public static class TerrainFit
             return Fitted("SURFACE", Math.Min(target, maxTop), u, canForce ? 128 : UnforcedLimit, Math.Round,
                 contacts + string.Format(CultureInfo.InvariantCulture, ", ground {0:F3}-{1:F3}", lowest, highest));
         }
+
+        // Everything below raises the ground above what's around it.
+        if (levelOnly && (lowerSides > 0 || surfaceCorners > 0))
+            return FitResult.Skip(NotLevel, contacts);
 
         // Cube resting a little above the ground: raise the ground under its
         // edges to meet it. The closer the ground, the more fill.

@@ -108,19 +108,41 @@ public static class PlacementPatches
 
             // A floor, step or similar going in next to an already-fitted cube
             // would show that cube's fill poking up through it (walls built
-            // before floors). Put those neighbours back to vanilla.
+            // before floors). Put those neighbours back to vanilla. An upright
+            // shape like a rounded corner shows the fill in its cut-away
+            // instead: a level fill is just the ground carrying on, so those
+            // stay, and anything higher drops to the natural ground density
+            // the new block is about to keep.
             if (TerrainFit.ShowsFill(change.blockValue))
             {
                 pending ??= PendingPositions(changes);
+                bool upright = TerrainFitConfig.KeepShapes && TerrainFit.IsUpright(change.blockValue);
+                sbyte reset = MarchingCubes.DensityAir;
+                if (upright)
+                {
+                    int here = world.GetDensity(pos.x, pos.y, pos.z);
+                    if (here > 0 && here < MarchingCubes.DensityAir) reset = (sbyte)here;
+                }
                 foreach (var offset in TerrainFit.Around)
                 {
                     var n = pos + offset;
                     if (pending.Contains(n)) continue;
                     var nbv = world.GetBlock(n.x, n.y, n.z);
-                    if (world.GetDensity(n.x, n.y, n.z) > 1 || !TerrainFit.IsFittableCube(nbv, out _)) continue;
-                    (resets ??= new List<BlockChangeInfo>()).Add(Corrections.DensityOnly(n, MarchingCubes.DensityAir, false));
+                    int nd = world.GetDensity(n.x, n.y, n.z);
+                    bool isCube = TerrainFit.IsFittableCube(nbv, out _, out var nMaxTop);
+                    bool isUpright = TerrainFit.IsUpright(nbv);
+                    bool isFitted = nd <= 1 && (isCube || isUpright);
+                    // Kept natural ground is fine beside another upright shape, not beside a floor or step.
+                    bool isKept = !upright && nd > 1 && nd < MarchingCubes.DensityAir && isUpright;
+                    if (!isFitted && !isKept) continue;
+                    if (upright && isFitted)
+                    {
+                        var level = TerrainFit.Solve(world, n, pending, isCube ? nMaxTop : 1.0, levelOnly: true);
+                        if (level.Apply && level.Mode == "SURFACE") continue;
+                    }
+                    (resets ??= new List<BlockChangeInfo>()).Add(Corrections.DensityOnly(n, reset, false));
                     pending.Add(n);
-                    Log.Out($"[KitsuneTerrainFit] unfit {Name(nbv)} at {n}: {Name(change.blockValue)} placed beside it by entity {change.changedByEntityId}");
+                    Log.Out($"[KitsuneTerrainFit] unfit {Name(nbv)} at {n}: {Name(change.blockValue)} placed beside it by entity {change.changedByEntityId}{(reset != MarchingCubes.DensityAir ? $", density {reset} to match it" : "")}");
                 }
             }
 
@@ -132,19 +154,37 @@ public static class PlacementPatches
             // placement, so only a solid density means someone upstream chose one.
             if (change.bChangeDensity && change.density <= 0) continue;
 
-            if (!TerrainFit.IsFittableCube(change.blockValue, out var notCube, out var maxTop))
+            FitResult fit;
+            if (TerrainFit.IsFittableCube(change.blockValue, out var notCube, out var maxTop))
+            {
+                pending ??= PendingPositions(changes);
+                pending.Remove(pos);
+                fit = TerrainFit.Solve(world, pos, pending, maxTop);
+                // Beside a rounded corner or pillar on uneven ground: keep the natural ground for both.
+                if (!fit.Apply && fit.Mode == TerrainFit.NotLevel && TerrainFitConfig.KeepShapes && change.bChangeDensity)
+                    fit = TerrainFit.Keep(world, pos, pending);
+                pending.Add(pos);
+            }
+            else if (TerrainFitConfig.KeepShapes && TerrainFit.IsUpright(change.blockValue))
+            {
+                // Level ground gets the same fill as a cube; the cut-away just
+                // shows the ground carrying on. Otherwise keep what's there.
+                pending ??= PendingPositions(changes);
+                pending.Remove(pos);
+                fit = TerrainFit.Solve(world, pos, pending, 1.0, levelOnly: true);
+                // A change that doesn't set density already leaves the ground as it is.
+                if (!fit.Apply && change.bChangeDensity)
+                    fit = TerrainFit.Keep(world, pos, pending);
+                pending.Add(pos);
+            }
+            else
             {
                 var bv = change.blockValue;
                 // Digging, terrain and water aren't builds; not worth a line even in verbose.
                 if (TerrainFitConfig.Verbose && !bv.isair && !bv.isTerrain && !bv.isWater)
-                    Log.Out($"[KitsuneTerrainFit] skip {Name(change.blockValue)} at {pos} by entity {change.changedByEntityId}: {notCube}");
+                    Log.Out($"[KitsuneTerrainFit] skip {Name(change.blockValue)} at {pos} by entity {change.changedByEntityId}: {(notCube == "not-a-full-cube" && TerrainFitConfig.KeepShapes ? "not-a-cube-or-upright-shape" : notCube)}");
                 continue;
             }
-
-            pending ??= PendingPositions(changes);
-            pending.Remove(pos);
-            var fit = TerrainFit.Solve(world, pos, pending, maxTop);
-            pending.Add(pos);
 
             if (!fit.Apply)
             {
