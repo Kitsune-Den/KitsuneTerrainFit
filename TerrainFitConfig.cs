@@ -44,6 +44,14 @@ public static class TerrainFitConfig
     /// </summary>
     public static bool EmbedInHillside { get; private set; } = true;
 
+    /// <summary>
+    /// shapes="keep" (default): upright shapes like rounded corners and
+    /// pillars keep the ground density their space already had, so vanilla
+    /// doesn't pull the ground into a trench around them.
+    /// shapes="vanilla": only cubes and alsoFit blocks are touched.
+    /// </summary>
+    public static bool KeepShapes { get; private set; } = true;
+
     public static bool IsAlsoFit(string blockName) =>
         alsoFitRegex != null && blockName != null && alsoFitRegex.IsMatch(blockName);
 
@@ -54,6 +62,7 @@ public static class TerrainFitConfig
         SetAlsoFit(DefaultAlsoFit);
         AlsoFitHeight = DefaultAlsoFitHeight;
         EmbedInHillside = true;
+        KeepShapes = true;
         try
         {
             if (string.IsNullOrEmpty(modPath)) return;
@@ -82,6 +91,15 @@ public static class TerrainFitConfig
                     Log.Warning($"[KitsuneTerrainFit] Settings.xml 'hillside' value '{v}' isn't embed or clear; using embed.");
             }
             Log.Out($"[KitsuneTerrainFit] Hillside cubes: {(EmbedInHillside ? "embed" : "clear")}");
+            var shapes = Regex.Match(text, "shapes\\s*=\\s*\"([^\"]*)\"", RegexOptions.IgnoreCase);
+            if (shapes.Success)
+            {
+                var v = shapes.Groups[1].Value.Trim();
+                if (v.Equals("vanilla", StringComparison.OrdinalIgnoreCase)) KeepShapes = false;
+                else if (!v.Equals("keep", StringComparison.OrdinalIgnoreCase))
+                    Log.Warning($"[KitsuneTerrainFit] Settings.xml 'shapes' value '{v}' isn't keep or vanilla; using keep.");
+            }
+            Log.Out($"[KitsuneTerrainFit] Upright shapes: {(KeepShapes ? "keep ground" : "vanilla")}");
             if (AlsoFit.Length > 0)
                 Log.Out($"[KitsuneTerrainFit] Also fitting: {AlsoFit} (ground up to {AlsoFitHeight:0.##} of their height)");
         }

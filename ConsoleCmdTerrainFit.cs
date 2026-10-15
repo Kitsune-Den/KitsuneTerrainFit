@@ -45,7 +45,9 @@ public class ConsoleCmdTerrainFit : ConsoleCmdAbstract
         switch (_params[0].ToLowerInvariant())
         {
             case "verbose":
-                if (_params.Count > 1) TerrainFitConfig.Verbose = _params[1].Equals("on", StringComparison.OrdinalIgnoreCase);
+                // First word only: pasting two commands at once runs them together as "on\ntfit ...".
+                if (_params.Count > 1)
+                    TerrainFitConfig.Verbose = _params[1].Trim().Split((char[])null, 2)[0].Equals("on", StringComparison.OrdinalIgnoreCase);
                 Out($"Verbose logging is {(TerrainFitConfig.Verbose ? "on" : "off")}.");
                 return;
             case "refit":
@@ -122,7 +124,10 @@ public class ConsoleCmdTerrainFit : ConsoleCmdAbstract
             for (int y = yMin; y <= yMax; y++)
             {
                 var bv = world.GetBlock(x, y, z);
-                if (!TerrainFit.IsFittableCube(bv, out _, out var maxTop)) continue;
+                bool isCube = TerrainFit.IsFittableCube(bv, out _, out var maxTop);
+                // Rounded corners, pillars and the like: fitted or kept by us.
+                bool isUpright = !isCube && TerrainFit.IsUpright(bv);
+                if (!isCube && !isUpright) continue;
 
                 var pos = new Vector3i(x, y, z);
                 sbyte density = world.GetDensity(x, y, z);
@@ -130,8 +135,9 @@ public class ConsoleCmdTerrainFit : ConsoleCmdAbstract
                 if (unfit)
                 {
                     // Vanilla never gives a placed cube anything but air density,
-                    // so negative (or our +1 wall value) means it was fitted.
-                    if (density > 1) continue;
+                    // so negative (or our +1 wall value) means it was fitted. An
+                    // upright shape under full air was fitted or kept its ground.
+                    if (isCube ? density > 1 : density >= MarchingCubes.DensityAir) continue;
                     candidates++;
                     if (HasTrigger(chunk, pos)) { skippedTrigger++; continue; }
                     changes.Add(Corrections.DensityOnly(pos, MarchingCubes.DensityAir, false));
@@ -141,10 +147,13 @@ public class ConsoleCmdTerrainFit : ConsoleCmdAbstract
 
                 // Already fitted (by us, or baked into a prefab): leave it.
                 if (density <= 1) continue;
+                // Upright shapes only get the level fill; the natural density
+                // they could have kept is long gone once they're built.
+                if (isUpright && !TerrainFitConfig.KeepShapes) continue;
                 candidates++;
                 if (HasTrigger(chunk, pos)) { skippedTrigger++; continue; }
 
-                var fit = TerrainFit.Solve(world, pos, noPending, maxTop);
+                var fit = TerrainFit.Solve(world, pos, noPending, isUpright ? 1.0 : maxTop, levelOnly: isUpright);
                 if (!fit.Apply) continue;
                 changes.Add(Corrections.DensityOnly(pos, fit.Density, fit.Force));
                 Count(modes, fit.Mode);
@@ -153,7 +162,7 @@ public class ConsoleCmdTerrainFit : ConsoleCmdAbstract
 
         string verb = unfit ? "reset" : "fit";
         string summary = string.Format(CultureInfo.InvariantCulture,
-            "{0} {1} of {2} cubes within {3} of {4}{5}",
+            "{0} {1} of {2} blocks within {3} of {4}{5}",
             dry ? "Would " + verb : (unfit ? "Reset" : "Fitted"), changes.Count, candidates, radius, centre,
             modes.Count > 0 ? " (" + string.Join(", ", Describe(modes)) + ")" : "");
         if (skippedTrigger > 0) summary += $"; left {skippedTrigger} POI trigger blocks alone";

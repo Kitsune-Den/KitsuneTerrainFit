@@ -26,8 +26,20 @@ When you place a **full, opaque cube** (or a **farm plot**) next to the ground, 
 | Cube sitting just above lower ground | Raises the ground under its edges to meet it. Closer ground gets more fill |
 | Ground only diagonal to the cube | A small, capped fill |
 | Cube built into a cut in a hillside | `embed`: pulls the hill in over the edge. `clear`: leaves it vanilla, since air density already puts the hillside flush against the face |
+| A rounded corner, pillar or other upright shape next to it | Only the level fill; otherwise keeps the natural ground density (see below) |
 | A floor, step, slab, door or other partial block next to it (sides or diagonals) | Leaves it vanilla. The fill shapes ground into the neighbouring spaces, and a partial block can't hide it, so dirt would poke up through the floor |
 | Water next to the cube, ground or another fitted block on top of it, not a full cube, glass, anything with a tile entity, multi-blocks | Leaves it vanilla |
+
+### Rounded corners, pillars and other upright shapes
+
+A fill puts ground inside the block's space up to the fitted height. A cube hides that, but a rounded corner or pillar has open parts where it shows. So these shapes only get a fill that keeps the ground level:
+
+- **Level ground** (ground beside the block at its own level): the same fill a cube gets. It never rises above the lowest ground around, so in the open parts it just looks like the ground carrying on.
+- **Anything else** (resting above lower ground, only touching diagonally, against a hill cut): the mod keeps the density the space already had. Vanilla resets the air just above natural ground to full air when you place a block, and that's what pulls the ground down into the trench. Keeping it leaves the ground exactly where it was. This only helps where the ground was still natural. A spot that was dug out, or where a block was picked up, is already full air, so there's nothing to keep.
+
+"Upright" is read from the shape's mesh at its current rotation: every surface has to be a vertical wall or flat on the block's bottom or top. That covers rounded corners, round and square pillars, quarter rounds and poles, standing upright or upside down. Steps, ramps, plates, half blocks and shapes lying on their side stay vanilla, because ground would poke through them.
+
+Cubes next to an upright shape follow the same rule: the level fill, or keep what's there. Putting an upright shape next to a fitted cube leaves a level fit alone and drops anything higher to natural ground. `tfit refit` gives upright shapes the level fill too, and `tfit unfit` resets them. `shapes="vanilla"` turns all of this off.
 
 Breaking the block puts the voxel back to air the normal vanilla way. Upgrading or repairing it keeps the fitted density. Placing a floor, step or other partial block next to a fitted cube puts that cube back to vanilla, so building walls before floors doesn't leave dirt along the seams.
 
@@ -50,8 +62,10 @@ tfit verbose on         also log every placement it skipped, and why
 `Settings.xml` in the mod folder:
 
 ```xml
-<KitsuneTerrainFit enabled="true" alsoFit="farmPlotBlock*" alsoFitHeight="0.75" hillside="embed" verbose="false" />
+<KitsuneTerrainFit enabled="true" alsoFit="farmPlotBlock*" alsoFitHeight="0.75" hillside="embed" shapes="keep" verbose="false" />
 ```
+
+`shapes="keep"` (default) keeps natural ground around upright shapes like rounded corners and pillars. `shapes="vanilla"` leaves them alone.
 
 `enabled="false"` makes placement fully vanilla. `tfit` still works.
 
