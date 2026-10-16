@@ -21,7 +21,7 @@ When you place a **full, opaque cube** (or a **farm plot**) next to the ground, 
 
 | Situation | What it does |
 |---|---|
-| Ground beside the cube at the same level | Matches the cube to the surrounding ground height, never higher than the lowest neighbour by more than a hair (so no lip pokes out) |
+| Ground beside the cube at the same level | Matches the cube to the surrounding ground height, never higher than the lowest neighbour by more than a hair (so no lip pokes out), and always a few centimetres under the cube's top so you can still aim at it |
 | Cube on a slope | `hillside="embed"` (default): fitted to the ground around it, so the hill washes over the uphill edge and it looks sunk in. `hillside="clear"`: fills only as much as keeps the ground under the top edge |
 | Cube sitting just above lower ground | Raises the ground under its edges to meet it. Closer ground gets more fill |
 | Ground only diagonal to the cube | A small, capped fill |
@@ -52,8 +52,11 @@ tfit refit              fit cubes within 16 blocks of you
 tfit refit 32 dry       just report what would change within 32
 tfit refit x y z 24     around a point (from telnet or the web console)
 tfit unfit 16           put cubes near you back to vanilla density
+tfit lower 16           blocks you can't aim at because the ground covers their top
 tfit verbose on         also log every placement it skipped, and why
 ```
+
+The fill always stops a few centimetres under a block's top face. The game decides what you're aiming at with a physics ray, and if the ground mesh sits on or over a block's top, the ray hits the ground first and you end up aiming at the dirt underneath: no pick-up prompt, and the hammer does nothing. Blocks fitted by v0.1.6 or earlier can be flush like that, mostly ones placed in a hole. `tfit lower` brings their ground back down. It's a separate command because a prefab can ship blocks flush with the ground on purpose, so run it with `dry` first near a POI.
 
 `refit` only touches cubes that still have vanilla density, and leaves POI trigger blocks alone. `unfit` resets any full cube with solid density, which includes blocks a prefab shipped that way, so run it with `dry` first if you're near a POI.
 

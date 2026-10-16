@@ -5,5 +5,5 @@
 	<Description value="Closes the gap between terrain and the blocks you build on it. Full cubes, farm plots, rounded corners and pillars placed against the ground get a density that lets the terrain meet them flush instead of dipping away. Server-side only." />
 	<Website value="https://github.com/Kitsune-Den/KitsuneTerrainFit" />
 	<Author value="AdaInTheLab" />
-	<Version value="0.1.6" />
+	<Version value="0.1.7" />
 </xml>

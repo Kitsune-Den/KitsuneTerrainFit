@@ -87,6 +87,16 @@ public static class TerrainFit
     private const double EdgeMargin = 0.01;
 
     /// <summary>
+    /// Highest the fill may bring the ground inside a block (t, see class
+    /// notes; 0.5 is the top face). The game works out what you're aiming at
+    /// with a physics ray. When the ground mesh sits on or over a block's top
+    /// face the ray hits the ground first and the hit lands on the dirt under
+    /// the block, so it can't be picked up, upgraded or repaired. 0.45 keeps
+    /// the top face a few centimetres proud of the ground.
+    /// </summary>
+    public const double MaxFillTop = 0.45;
+
+    /// <summary>
     /// Skip reason when an upright shape is involved and the ground isn't
     /// level enough for a fill that stays at or under the ground around it.
     /// </summary>
@@ -378,6 +388,7 @@ public static class TerrainFit
                 ceiling = Math.Min(ceiling, 1.0 - sideHeight[i]);
             maxTop = Math.Min(maxTop, ceiling - EdgeMargin);
         }
+        maxTop = Math.Min(maxTop, MaxFillTop);
         if (maxTop <= 0.005)
             return FitResult.Skip("would-bury", contacts + string.Format(CultureInfo.InvariantCulture, ", room {0:F3}", ceiling));
 
@@ -408,6 +419,29 @@ public static class TerrainFit
         }
 
         return FitResult.Skip("no-ground-contact", contacts);
+    }
+
+    /// <summary>
+    /// For a fitted block whose fill reaches over <see cref="MaxFillTop"/>
+    /// (fitted before the cap existed, or baked into a prefab): the density
+    /// that brings the ground back down under its top face.
+    /// </summary>
+    public static bool IsOverfilled(WorldBase world, Vector3i pos, out sbyte lowered, out bool force)
+    {
+        lowered = 0;
+        force = false;
+        int d = world.GetDensity(pos.x, pos.y, pos.z);
+        if (d >= 0) return false;
+        var above = pos + Up;
+        if (!IsOpen(world, above)) return false;
+        int u = world.GetDensity(above.x, above.y, above.z);
+        if (-d / (double)(u - d) <= MaxFillTop + 0.005) return false;
+
+        int magnitude = Math.Min((int)Math.Floor(MaxFillTop * u / (1.0 - MaxFillTop)), 128);
+        if (magnitude < 1) return false;
+        lowered = (sbyte)-magnitude;
+        force = magnitude > UnforcedLimit;
+        return true;
     }
 
     private static FitResult Fitted(string mode, double target, int u, int limit, Func<double, double> round, string contacts)
