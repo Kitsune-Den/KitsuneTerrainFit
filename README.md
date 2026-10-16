@@ -6,6 +6,14 @@ Put a block down on the ground in 7 Days to Die and look at its base. The dirt d
 
 This makes the ground meet the block flush.
 
+| Vanilla | With KitsuneTerrainFit |
+|---|---|
+| ![Frame pillars sitting in dark trenches where the ground dips away from them](docs/screenshots/vanilla-pillars.webp) | ![The same pillars with the ground level right up to them, tops just above the dirt](docs/screenshots/fitted-pillars.webp) |
+
+It works on rounded corners and pillars too, not just plain cubes. Here's the trench on a rounded corner in vanilla:
+
+![A rounded frame corner with a dark gap where the ground falls away from its base](docs/screenshots/vanilla-rounded-corner.webp)
+
 ## Install
 
 1. Drop the `KitsuneTerrainFit` folder into `<7D2D>/Mods/`
