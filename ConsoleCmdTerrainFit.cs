@@ -9,6 +9,8 @@ using System.Globalization;
 ///   tfit refit x y z [radius] [dry]     same, around a point (telnet / web console)
 ///   tfit unfit [radius] [dry]           put cubes near you back to vanilla density
 ///   tfit unfit x y z [radius] [dry]
+///   tfit lower [radius] [dry]           bring ground that covers a block's top back under it
+///   tfit lower x y z [radius] [dry]
 ///   tfit verbose on|off                 log skipped placements too
 ///
 /// Runs on the server. Changes are relayed to every connected client.
@@ -30,6 +32,8 @@ public class ConsoleCmdTerrainFit : ConsoleCmdAbstract
         "  tfit refit <x> <y> <z> [radius] [dry]\n" +
         "  tfit unfit [radius] [dry]          - reset fitted cubes near you to vanilla density\n" +
         "  tfit unfit <x> <y> <z> [radius] [dry]\n" +
+        "  tfit lower [radius] [dry]          - fitted blocks the ground covers (can't aim at them): bring it back under their top\n" +
+        "  tfit lower <x> <y> <z> [radius] [dry]\n" +
         "  tfit verbose on|off                - also log skipped placements\n" +
         $"Radius defaults to {DefaultRadius}, max {MaxRadius}, and covers +/-{VerticalReach} blocks vertically.\n" +
         "'dry' reports what would change without changing anything.";
@@ -51,10 +55,13 @@ public class ConsoleCmdTerrainFit : ConsoleCmdAbstract
                 Out($"Verbose logging is {(TerrainFitConfig.Verbose ? "on" : "off")}.");
                 return;
             case "refit":
-                Sweep(_params, _senderInfo, unfit: false);
+                Sweep(_params, _senderInfo, SweepKind.Refit);
                 return;
             case "unfit":
-                Sweep(_params, _senderInfo, unfit: true);
+                Sweep(_params, _senderInfo, SweepKind.Unfit);
+                return;
+            case "lower":
+                Sweep(_params, _senderInfo, SweepKind.Lower);
                 return;
             default:
                 Out(getHelp());
@@ -62,8 +69,11 @@ public class ConsoleCmdTerrainFit : ConsoleCmdAbstract
         }
     }
 
-    private static void Sweep(List<string> args, CommandSenderInfo sender, bool unfit)
+    private enum SweepKind { Refit, Unfit, Lower }
+
+    private static void Sweep(List<string> args, CommandSenderInfo sender, SweepKind kind)
     {
+        bool unfit = kind == SweepKind.Unfit;
         var world = GameManager.Instance?.World;
         if (world == null)
         {
@@ -145,6 +155,18 @@ public class ConsoleCmdTerrainFit : ConsoleCmdAbstract
                     continue;
                 }
 
+                if (kind == SweepKind.Lower)
+                {
+                    // Only on request: a prefab can ship blocks flush with the
+                    // ground on purpose, and this gives them a small lip.
+                    if (!TerrainFit.IsOverfilled(world, pos, out var lowered, out var force)) continue;
+                    candidates++;
+                    if (HasTrigger(chunk, pos)) { skippedTrigger++; continue; }
+                    changes.Add(Corrections.DensityOnly(pos, lowered, force));
+                    Count(modes, "lowered");
+                    continue;
+                }
+
                 // Already fitted (by us, or baked into a prefab): leave it.
                 if (density <= 1) continue;
                 // Upright shapes only get the level fill; the natural density
@@ -160,10 +182,11 @@ public class ConsoleCmdTerrainFit : ConsoleCmdAbstract
             }
         }
 
-        string verb = unfit ? "reset" : "fit";
+        string verb = kind == SweepKind.Unfit ? "reset" : kind == SweepKind.Lower ? "lower" : "fit";
+        string done = kind == SweepKind.Unfit ? "Reset" : kind == SweepKind.Lower ? "Lowered" : "Fitted";
         string summary = string.Format(CultureInfo.InvariantCulture,
             "{0} {1} of {2} blocks within {3} of {4}{5}",
-            dry ? "Would " + verb : (unfit ? "Reset" : "Fitted"), changes.Count, candidates, radius, centre,
+            dry ? "Would " + verb : done, changes.Count, candidates, radius, centre,
             modes.Count > 0 ? " (" + string.Join(", ", Describe(modes)) + ")" : "");
         if (skippedTrigger > 0) summary += $"; left {skippedTrigger} POI trigger blocks alone";
         if (skippedUnloaded > 0) summary += $"; {skippedUnloaded} columns weren't loaded";
