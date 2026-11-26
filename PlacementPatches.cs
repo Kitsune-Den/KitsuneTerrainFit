@@ -163,6 +163,8 @@ public static class PlacementPatches
                 // Beside a rounded corner or pillar on uneven ground: keep the natural ground for both.
                 if (!fit.Apply && fit.Mode == TerrainFit.NotLevel && TerrainFitConfig.KeepShapes && change.bChangeDensity)
                     fit = TerrainFit.Keep(world, pos, pending);
+                // No fill (covered, beside a floor, in a hill cut...): still meet its base.
+                fit = TerrainFit.OrBase(world, pos, pending, fit);
                 pending.Add(pos);
             }
             else if (TerrainFitConfig.KeepShapes && TerrainFit.IsUpright(change.blockValue))
@@ -175,6 +177,7 @@ public static class PlacementPatches
                 // A change that doesn't set density already leaves the ground as it is.
                 if (!fit.Apply && change.bChangeDensity)
                     fit = TerrainFit.Keep(world, pos, pending);
+                fit = TerrainFit.OrBase(world, pos, pending, fit);
                 pending.Add(pos);
             }
             else

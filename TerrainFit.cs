@@ -11,7 +11,7 @@ public struct FitResult
     public bool Apply;
     public sbyte Density;
     public bool Force;
-    /// <summary>SURFACE / LOWER / CORNER / WALL when applied, otherwise the skip reason.</summary>
+    /// <summary>SURFACE / WALL / BASE / KEEP when applied, otherwise the skip reason.</summary>
     public string Mode;
     public string Detail;
 
@@ -56,12 +56,17 @@ public static class TerrainFit
     private const double SideWeight = 2.0;
     private const double CornerWeight = 1.0;
 
-    /// <summary>Cube sitting just above lower ground: most fill we'll add, and how far down we'll still reach.</summary>
-    private const double LowerFillMax = 0.30;
-    private const double LowerReach = 0.60;
+    /// <summary>Mode for a block resting on the ground: the ground meets its base, never higher.</summary>
+    public const string BaseMode = "BASE";
 
-    /// <summary>Cube touching ground only diagonally: most fill we'll add.</summary>
-    private const double CornerFillMax = 0.15;
+    /// <summary>Skip reasons a flush base can't fix or would make worse.</summary>
+    public const string FillOff = "fill-height-off";
+    public const string InWater = "water";
+    public const string NotOnGround = "not-on-ground";
+    public const string AlreadyFlush = "already-flush";
+    public const string PartialNeighbour = "next-to-partial-block";
+
+    private static readonly HashSet<Vector3i> NoPending = new HashSet<Vector3i>();
 
     private static readonly Vector3i Up = new Vector3i(0, 1, 0);
     private static readonly Vector3i Down = new Vector3i(0, -1, 0);
@@ -238,14 +243,8 @@ public static class TerrainFit
             return FitResult.Skip("already-air", "no natural ground density to keep");
 
         // A floor, step or slab beside it would lose the dip vanilla gives it.
-        foreach (var offset in Around)
-        {
-            var n = pos + offset;
-            if (pending.Contains(n)) continue;
-            var nbv = world.GetBlock(n.x, n.y, n.z);
-            if (ShowsFill(nbv) && !IsUpright(nbv))
-                return FitResult.Skip("next-to-partial-block");
-        }
+        if (BesidePartial(world, pos, pending))
+            return FitResult.Skip(PartialNeighbour);
 
         return new FitResult
         {
@@ -257,6 +256,142 @@ public static class TerrainFit
     }
 
     /// <summary>
+    /// For a block resting on the ground with no ground beside it at its own
+    /// level (farm plots and cubes set down on flat ground): a positive
+    /// density that puts the ground in its own column exactly at its base.
+    ///
+    /// Vanilla gives the block full air (+127). When the ground under it is
+    /// only weakly solid, which natural surface ground is, the crossing
+    /// between that ground and +127 lands below the block's base, so the
+    /// ground drops away under it and opens the trench. The crossing is
+    /// -d0 / (d - d0); d = -d0 puts it at 0.5, the bottom face.
+    ///
+    /// It has to stay positive. Any solid (negative) density, however small,
+    /// makes the mesher treat the block's whole space as ground, and since the
+    /// spaces beside it are open, the surface between them comes out of the
+    /// block's sides: a mound of dirt about a third of the way up its walls,
+    /// sloping half a block out. That's what 0.1.8 and earlier did here.
+    ///
+    /// Natural ground already a little above the base stays where it is,
+    /// unless a floor or step beside the block could show it.
+    /// </summary>
+    public static FitResult Base(WorldBase world, Vector3i pos, ICollection<Vector3i> pending, string contacts = null)
+    {
+        var below = pos + Down;
+        if (pending.Contains(below) || !IsSolidTerrain(world, below))
+            return FitResult.Skip(NotOnGround, contacts);
+        if (IsWater(world, pos)) return FitResult.Skip(InWater, contacts);
+
+        int d0 = world.GetDensity(below.x, below.y, below.z);
+        int d = Math.Min(-d0, (int)MarchingCubes.DensityAir);
+        bool kept = false;
+        int here = world.GetDensity(pos.x, pos.y, pos.z);
+        if (here > 0 && here < d && !BesidePartial(world, pos, pending))
+        {
+            d = here;
+            kept = true;
+        }
+        if (d >= MarchingCubes.DensityAir)
+            return FitResult.Skip(AlreadyFlush, Join(contacts, "solid ground under it"));
+
+        return new FitResult
+        {
+            Apply = true,
+            Density = (sbyte)d,
+            Mode = BaseMode,
+            Detail = Join(contacts, string.Format(CultureInfo.InvariantCulture,
+                "ground under it {0}{1}", d0, kept ? ", natural ground kept" : "")),
+        };
+    }
+
+    /// <summary>
+    /// A skipped fit falls back to a flush base when the block rests on the
+    /// ground. Never in water or with the fill turned off for the block.
+    /// </summary>
+    public static FitResult OrBase(WorldBase world, Vector3i pos, ICollection<Vector3i> pending, FitResult fit)
+    {
+        if (fit.Apply) return fit;
+        switch (fit.Mode)
+        {
+            case FillOff:
+            case InWater:
+            case NotOnGround:
+            case AlreadyFlush:
+                return fit;
+        }
+        var flat = Base(world, pos, pending);
+        if (!flat.Apply) return fit;
+        flat.Detail = Join(flat.Detail, "no fill: " + fit.Mode);
+        return flat;
+    }
+
+    /// <summary>
+    /// First check for <see cref="IsMounded"/>: a solid fill with no ground
+    /// beside the block at its own level.
+    /// </summary>
+    public static bool MayBeMounded(WorldBase world, Vector3i pos)
+    {
+        if (world.GetDensity(pos.x, pos.y, pos.z) > 0) return false;
+        foreach (var side in Sides)
+            if (IsSolidTerrain(world, pos + side)) return false;
+        return true;
+    }
+
+    /// <summary>
+    /// A block with a solid fill but no ground beside it at its own level, and
+    /// open space beside it for the fill to spill into: the mound 0.1.8 and
+    /// earlier gave blocks resting on the ground, or a level fit whose ground
+    /// has since been dug away. <paramref name="flattening"/> holds blocks
+    /// already being fixed in the same sweep; they count as open, so a bed
+    /// several plots wide clears all the way in. <paramref name="density"/> is
+    /// the flush base, or full air when nothing under it is ground.
+    /// </summary>
+    public static bool IsMounded(WorldBase world, Vector3i pos, ICollection<Vector3i> flattening, out sbyte density, out string detail)
+    {
+        density = MarchingCubes.DensityAir;
+        detail = null;
+        if (!MayBeMounded(world, pos)) return false;
+
+        bool spills = false;
+        foreach (var side in Sides)
+        {
+            var n = pos + side;
+            if (flattening.Contains(n) || IsOpen(world, n)) { spills = true; break; }
+        }
+        if (!spills) return false;
+
+        var flat = Base(world, pos, NoPending);
+        if (flat.Apply)
+        {
+            density = flat.Density;
+            detail = flat.Detail;
+            return true;
+        }
+        if (flat.Mode == InWater) return false;
+        detail = flat.Mode;
+        return true;
+    }
+
+    /// <summary>
+    /// A floor, step, slab, door or similar beside <paramref name="pos"/>
+    /// (sides or diagonals): ground above a block's base would show through it.
+    /// </summary>
+    private static bool BesidePartial(WorldBase world, Vector3i pos, ICollection<Vector3i> pending)
+    {
+        foreach (var offset in Around)
+        {
+            var n = pos + offset;
+            if (pending.Contains(n)) continue;
+            var nbv = world.GetBlock(n.x, n.y, n.z);
+            if (ShowsFill(nbv) && !IsUpright(nbv)) return true;
+        }
+        return false;
+    }
+
+    private static string Join(string a, string b) =>
+        string.IsNullOrEmpty(a) ? b : string.IsNullOrEmpty(b) ? a : a + ", " + b;
+
+    /// <summary>
     /// Works out the density for a full cube at <paramref name="pos"/>.
     /// <paramref name="pending"/> holds positions changing in the same batch;
     /// their current contents are about to be replaced, so they're ignored.
@@ -265,7 +400,7 @@ public static class TerrainFit
     /// </summary>
     public static FitResult Solve(WorldBase world, Vector3i pos, ICollection<Vector3i> pending, double maxTop = 1.0, bool levelOnly = false)
     {
-        if (maxTop <= 0) return FitResult.Skip("fill-height-off");
+        if (maxTop <= 0) return FitResult.Skip(FillOff);
 
         var above = pos + Up;
         if (pending.Contains(above) || !IsOpen(world, above))
@@ -275,26 +410,26 @@ public static class TerrainFit
         // A fill shapes the ground in the half of each neighbouring space
         // next to this block: outdoors that's the ramp that closes the trench.
         // A floor, step, slab or door there can't hide it, so dirt would poke
-        // up through it. Only fit when every neighbour is open, ground, or a
+        // up through it. Only fill when every neighbour is open, ground, or a
         // block that covers its whole space. An upright shape like a rounded
         // corner shows the fill in its cut-away, which is fine for a level
         // fill (that's just the ground carrying on) but not for one that
-        // raises the ground above its surroundings.
+        // raises the ground above its surroundings. A flush base never brings
+        // the ground above the block's bottom, so it's fine beside either.
+        bool besidePartial = false;
         foreach (var offset in Around)
         {
             var n = pos + offset;
             if (pending.Contains(n)) continue;
             var nbv = world.GetBlock(n.x, n.y, n.z);
             if (!ShowsFill(nbv)) continue;
-            if (!IsUpright(nbv)) return FitResult.Skip("next-to-partial-block");
-            levelOnly = true;
+            if (IsUpright(nbv)) levelOnly = true;
+            else besidePartial = true;
         }
 
         int surfaceSides = 0, wallSides = 0, lowerSides = 0, surfaceCorners = 0;
         double weighted = 0, weight = 0;
         double lowest = double.PositiveInfinity, highest = double.NegativeInfinity;
-        double highestLower = double.NegativeInfinity;
-        double lowestCorner = double.PositiveInfinity;
         // Ground height per side for the top-edge limit; anything that isn't a
         // surface counts as 0, which is the stricter assumption.
         var sideHeight = new double[4];
@@ -305,7 +440,7 @@ public static class TerrainFit
             var n = pos + Sides[i];
             if (pending.Contains(n)) continue;
             if (IsWater(world, n) || IsWater(world, n + Up))
-                return FitResult.Skip("water");
+                return FitResult.Skip(InWater);
 
             if (IsSolidTerrain(world, n))
             {
@@ -327,7 +462,6 @@ public static class TerrainFit
             else if (IsOpen(world, n) && !pending.Contains(n + Down) && IsSolidTerrain(world, n + Down))
             {
                 lowerSides++;
-                highestLower = Math.Max(highestLower, Crossing(world, n + Down, n) - 1.0);
             }
         }
 
@@ -336,7 +470,7 @@ public static class TerrainFit
             var n = pos + Corners[i];
             if (pending.Contains(n) || pending.Contains(n + Up)) continue;
             if (IsWater(world, n) || IsWater(world, n + Up))
-                return FitResult.Skip("water");
+                return FitResult.Skip(InWater);
 
             if (IsSolidTerrain(world, n) && IsSolidTerrain(world, n + Up))
             {
@@ -350,7 +484,6 @@ public static class TerrainFit
                 weight += CornerWeight;
                 lowest = Math.Min(lowest, h);
                 highest = Math.Max(highest, h);
-                lowestCorner = Math.Min(lowestCorner, h);
             }
         }
 
@@ -367,8 +500,8 @@ public static class TerrainFit
         // other value tilts that surface; +1 pulls the hill in over the edge,
         // which is the embedded look.
         if (wallSides > 0 && !keepEdgeClear)
-            return levelOnly
-                ? FitResult.Skip(NotLevel, contacts)
+            return levelOnly ? FitResult.Skip(NotLevel, contacts)
+                : besidePartial ? FitResult.Skip(PartialNeighbour, contacts)
                 : new FitResult { Apply = true, Density = 1, Mode = "WALL", Detail = contacts };
         if (wallSides > 0 || (wallCorners > 0 && keepEdgeClear))
             return FitResult.Skip("against-a-wall", contacts);
@@ -394,31 +527,21 @@ public static class TerrainFit
 
         if (surfaceSides > 0)
         {
+            if (besidePartial) return FitResult.Skip(PartialNeighbour, contacts);
             double target = Math.Min(weighted / weight, lowest + MaxRiseAboveLowest);
             bool canForce = surfaceSides >= 2 && highest - lowest <= MaxSpreadToForce;
             return Fitted("SURFACE", Math.Min(target, maxTop), u, canForce ? 128 : UnforcedLimit, Math.Round,
                 contacts + string.Format(CultureInfo.InvariantCulture, ", ground {0:F3}-{1:F3}", lowest, highest));
         }
 
-        // Everything below raises the ground above what's around it.
+        // An upright shape resting above lower ground keeps its natural
+        // ground instead (see Keep); the caller tries that first.
         if (levelOnly && (lowerSides > 0 || surfaceCorners > 0))
             return FitResult.Skip(NotLevel, contacts);
 
-        // Cube resting a little above the ground: raise the ground under its
-        // edges to meet it. The closer the ground, the more fill.
-        if (lowerSides > 0)
-        {
-            double closeness = Clamp((highestLower + LowerReach) / LowerReach, 0, 1);
-            return Fitted("LOWER", Math.Min(LowerFillMax * closeness, maxTop), u, UnforcedLimit, Math.Floor, contacts);
-        }
-
-        if (surfaceCorners > 0)
-        {
-            double target = Clamp(lowestCorner - MaxRiseAboveLowest, 0, Math.Min(CornerFillMax, maxTop));
-            return Fitted("CORNER", target, u, UnforcedLimit, Math.Floor, contacts);
-        }
-
-        return FitResult.Skip("no-ground-contact", contacts);
+        // No ground beside it at its own level: it's resting on the ground,
+        // or touches it only diagonally. Meet the base, never more.
+        return Base(world, pos, pending, contacts);
     }
 
     /// <summary>
@@ -509,6 +632,4 @@ public static class TerrainFit
         double d1 = world.GetDensity(open.x, open.y, open.z);
         return -d0 / (d1 - d0);
     }
-
-    private static double Clamp(double v, double min, double max) => Math.Max(min, Math.Min(max, v));
 }

@@ -29,19 +29,21 @@ When you place a **full, opaque cube** (or a **farm plot**) next to the ground, 
 |---|---|
 | Ground beside the cube at the same level | Matches the cube to the surrounding ground height, never higher than the lowest neighbour by more than a hair (so no lip pokes out), and always a few centimetres under the cube's top so you can still aim at it |
 | Cube on a slope | `hillside="embed"` (default): fitted to the ground around it, so the hill washes over the uphill edge and it looks sunk in. `hillside="clear"`: fills only as much as keeps the ground under the top edge |
-| Cube sitting just above lower ground | Raises the ground under its edges to meet it. Closer ground gets more fill |
-| Ground only diagonal to the cube | A small, capped fill |
-| Cube built into a cut in a hillside | `embed`: pulls the hill in over the edge. `clear`: leaves it vanilla, since air density already puts the hillside flush against the face |
+| Cube or farm plot set down on the ground, with nothing beside it at its own level (or ground only diagonal to it) | Flush base: the ground under it sits exactly at its bottom edge and never higher, so the trench closes without dirt piling up around it. Natural ground that was already a little higher stays where it was |
+| Cube built into a cut in a hillside | `embed`: pulls the hill in over the edge. `clear`: no fill, just the flush base, since air density already puts the hillside flush against the face |
 | A rounded corner, pillar or other upright shape next to it | Only the level fill; otherwise keeps the natural ground density (see below) |
-| A floor, step, slab, door or other partial block next to it (sides or diagonals) | Leaves it vanilla. The fill shapes ground into the neighbouring spaces, and a partial block can't hide it, so dirt would poke up through the floor |
-| Water next to the cube, ground or another fitted block on top of it, not a full cube, glass, anything with a tile entity, multi-blocks | Leaves it vanilla |
+| A floor, step, slab, door or other partial block next to it (sides or diagonals) | No fill. The fill shapes ground into the neighbouring spaces, and a partial block can't hide it, so dirt would poke up through the floor. It still gets the flush base, which never brings the ground above its bottom |
+| Another block or ground on top of it | No fill, just the flush base |
+| Water next to the cube, not a full cube, glass, anything with a tile entity, multi-blocks | Leaves it vanilla |
+
+Why the flush base and not a fill, for blocks resting on the ground: any solid density makes the mesher treat the block's whole space as ground. The spaces beside it are open air, so the surface between them comes out of the block's sides, and you get a mound of dirt about a third of the way up its walls, sloping half a block out. Versions 0.1.8 and earlier did that to farm plots and cubes set down on flat ground. A positive density just below vanilla's full air moves the ground under the block up to its base and nothing else. `tfit lower` flattens the old mounds (see below).
 
 ### Rounded corners, pillars and other upright shapes
 
 A fill puts ground inside the block's space up to the fitted height. A cube hides that, but a rounded corner or pillar has open parts where it shows. So these shapes only get a fill that keeps the ground level:
 
 - **Level ground** (ground beside the block at its own level): the same fill a cube gets. It never rises above the lowest ground around, so in the open parts it just looks like the ground carrying on.
-- **Anything else** (resting above lower ground, only touching diagonally, against a hill cut): the mod keeps the density the space already had. Vanilla resets the air just above natural ground to full air when you place a block, and that's what pulls the ground down into the trench. Keeping it leaves the ground exactly where it was. This only helps where the ground was still natural. A spot that was dug out, or where a block was picked up, is already full air, so there's nothing to keep.
+- **Anything else** (resting above lower ground, only touching diagonally, against a hill cut): the mod keeps the density the space already had. Vanilla resets the air just above natural ground to full air when you place a block, and that's what pulls the ground down into the trench. Keeping it leaves the ground exactly where it was. This only helps where the ground was still natural. A spot that was dug out, or where a block was picked up, is already full air, so there's nothing to keep, and the shape gets the flush base instead.
 
 "Upright" is read from the shape's mesh at its current rotation: every surface has to be a vertical wall or flat on the block's bottom or top. That covers rounded corners, round and square pillars, quarter rounds and poles, standing upright or upside down. Steps, ramps, plates, half blocks and shapes lying on their side stay vanilla, because ground would poke through them.
 
@@ -58,13 +60,15 @@ tfit refit              fit cubes within 16 blocks of you
 tfit refit 32 dry       just report what would change within 32
 tfit refit x y z 24     around a point (from telnet or the web console)
 tfit unfit 16           put cubes near you back to vanilla density
-tfit lower 16           blocks you can't aim at because the ground covers their top
+tfit lower 16           flatten dirt mounded up around blocks, and blocks you can't aim at because the ground covers their top
 tfit verbose on         also log every placement it skipped, and why
 ```
 
+**Dirt mounded up around farm plots or cubes?** Blocks set down on flat ground with v0.1.8 or earlier got a small solid fill that pushes the ground up their sides. Stand in the middle of it and run `tfit lower 16 dry` to see how many, then `tfit lower 16`. It gives each of them the flush base, and works from the edge of a bed inwards, so plots in the middle of a wide bed get fixed too.
+
 The fill always stops a few centimetres under a block's top face. The game decides what you're aiming at with a physics ray, and if the ground mesh sits on or over a block's top, the ray hits the ground first and you end up aiming at the dirt underneath: no pick-up prompt, and the hammer does nothing. Blocks fitted by v0.1.6 or earlier can be flush like that, mostly ones placed in a hole. `tfit lower` brings their ground back down. It's a separate command because a prefab can ship blocks flush with the ground on purpose, so run it with `dry` first near a POI.
 
-`refit` only touches cubes that still have vanilla density, and leaves POI trigger blocks alone. `unfit` resets any full cube with solid density, which includes blocks a prefab shipped that way, so run it with `dry` first if you're near a POI.
+`refit` only touches cubes that still have vanilla density, and leaves POI trigger blocks alone. `unfit` resets any full cube under full air density, which includes blocks a prefab shipped that way, so run it with `dry` first if you're near a POI. `lower` leaves POI trigger blocks alone too.
 
 ## Settings
 
