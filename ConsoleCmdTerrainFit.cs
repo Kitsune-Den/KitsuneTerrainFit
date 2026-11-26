@@ -9,8 +9,8 @@ using System.Globalization;
 ///   tfit refit x y z [radius] [dry]     same, around a point (telnet / web console)
 ///   tfit unfit [radius] [dry]           put cubes near you back to vanilla density
 ///   tfit unfit x y z [radius] [dry]
-///   tfit lower [radius] [dry]           bring ground that covers a block's top back under it
-///   tfit lower x y z [radius] [dry]
+///   tfit lower [radius] [dry]           flatten dirt mounded up around blocks, and bring
+///   tfit lower x y z [radius] [dry]     ground that covers a block's top back under it
 ///   tfit verbose on|off                 log skipped placements too
 ///
 /// Runs on the server. Changes are relayed to every connected client.
@@ -32,7 +32,8 @@ public class ConsoleCmdTerrainFit : ConsoleCmdAbstract
         "  tfit refit <x> <y> <z> [radius] [dry]\n" +
         "  tfit unfit [radius] [dry]          - reset fitted cubes near you to vanilla density\n" +
         "  tfit unfit <x> <y> <z> [radius] [dry]\n" +
-        "  tfit lower [radius] [dry]          - fitted blocks the ground covers (can't aim at them): bring it back under their top\n" +
+        "  tfit lower [radius] [dry]          - flatten dirt mounded up around blocks resting on the ground (0.1.8 and earlier),\n" +
+        "                                       and bring ground that covers a block's top (can't aim at it) back under it\n" +
         "  tfit lower <x> <y> <z> [radius] [dry]\n" +
         "  tfit verbose on|off                - also log skipped placements\n" +
         $"Radius defaults to {DefaultRadius}, max {MaxRadius}, and covers +/-{VerticalReach} blocks vertically.\n" +
@@ -120,6 +121,9 @@ public class ConsoleCmdTerrainFit : ConsoleCmdAbstract
         var modes = new Dictionary<string, int>();
         int candidates = 0, skippedUnloaded = 0, skippedTrigger = 0;
         var noPending = new HashSet<Vector3i>();
+        // tfit lower: possible mounds, settled after the scan so a wide bed clears from its edges in.
+        var maybeMounds = new List<Vector3i>();
+        var triggers = new HashSet<Vector3i>();
 
         int yMin = Math.Max(2, centre.y - VerticalReach), yMax = Math.Min(253, centre.y + VerticalReach);
         for (int x = centre.x - radius; x <= centre.x + radius; x++)
@@ -144,10 +148,10 @@ public class ConsoleCmdTerrainFit : ConsoleCmdAbstract
 
                 if (unfit)
                 {
-                    // Vanilla never gives a placed cube anything but air density,
-                    // so negative (or our +1 wall value) means it was fitted. An
-                    // upright shape under full air was fitted or kept its ground.
-                    if (isCube ? density > 1 : density >= MarchingCubes.DensityAir) continue;
+                    // Vanilla never gives a placed block anything but air density,
+                    // so anything under it was fitted, kept its ground, or got a
+                    // flush base.
+                    if (density >= MarchingCubes.DensityAir) continue;
                     candidates++;
                     if (HasTrigger(chunk, pos)) { skippedTrigger++; continue; }
                     changes.Add(Corrections.DensityOnly(pos, MarchingCubes.DensityAir, false));
@@ -157,6 +161,12 @@ public class ConsoleCmdTerrainFit : ConsoleCmdAbstract
 
                 if (kind == SweepKind.Lower)
                 {
+                    if (isCube && TerrainFit.MayBeMounded(world, pos))
+                    {
+                        maybeMounds.Add(pos);
+                        if (HasTrigger(chunk, pos)) triggers.Add(pos);
+                        continue;
+                    }
                     // Only on request: a prefab can ship blocks flush with the
                     // ground on purpose, and this gives them a small lip.
                     if (!TerrainFit.IsOverfilled(world, pos, out var lowered, out var force)) continue;
@@ -176,11 +186,16 @@ public class ConsoleCmdTerrainFit : ConsoleCmdAbstract
                 if (HasTrigger(chunk, pos)) { skippedTrigger++; continue; }
 
                 var fit = TerrainFit.Solve(world, pos, noPending, isUpright ? 1.0 : maxTop, levelOnly: isUpright);
-                if (!fit.Apply) continue;
+                // No fill, but still close the trench under its base.
+                fit = TerrainFit.OrBase(world, pos, noPending, fit);
+                if (!fit.Apply || fit.Density == density) continue;
                 changes.Add(Corrections.DensityOnly(pos, fit.Density, fit.Force));
                 Count(modes, fit.Mode);
             }
         }
+
+        if (maybeMounds.Count > 0)
+            SettleMounds(world, maybeMounds, triggers, changes, modes, ref candidates, ref skippedTrigger);
 
         string verb = kind == SweepKind.Unfit ? "reset" : kind == SweepKind.Lower ? "lower" : "fit";
         string done = kind == SweepKind.Unfit ? "Reset" : kind == SweepKind.Lower ? "Lowered" : "Fitted";
@@ -196,6 +211,50 @@ public class ConsoleCmdTerrainFit : ConsoleCmdAbstract
 
         Out(summary + ".");
         if (!dry) Log.Out("[KitsuneTerrainFit] " + summary);
+    }
+
+    /// <summary>
+    /// tfit lower, mounds: blocks with a solid fill and no ground beside them
+    /// at their own level get a flush base. Repeats until nothing new turns
+    /// up: a plot in the middle of a bed only has other plots beside it, which
+    /// count as open once they're being flattened too. Whatever isn't a
+    /// mound still gets the over-filled check.
+    /// </summary>
+    private static void SettleMounds(World world, List<Vector3i> maybe, HashSet<Vector3i> triggers,
+        List<BlockChangeInfo> changes, Dictionary<string, int> modes, ref int candidates, ref int skippedTrigger)
+    {
+        var flattening = new HashSet<Vector3i>();
+        var left = maybe;
+        bool grew = true;
+        while (grew && left.Count > 0)
+        {
+            grew = false;
+            var next = new List<Vector3i>();
+            foreach (var pos in left)
+            {
+                if (!TerrainFit.IsMounded(world, pos, flattening, out var flat, out _))
+                {
+                    next.Add(pos);
+                    continue;
+                }
+                candidates++;
+                if (triggers.Contains(pos)) { skippedTrigger++; continue; }
+                flattening.Add(pos);
+                changes.Add(Corrections.DensityOnly(pos, flat, false));
+                Count(modes, "mound");
+                grew = true;
+            }
+            left = next;
+        }
+
+        foreach (var pos in left)
+        {
+            if (!TerrainFit.IsOverfilled(world, pos, out var lowered, out var force)) continue;
+            candidates++;
+            if (triggers.Contains(pos)) { skippedTrigger++; continue; }
+            changes.Add(Corrections.DensityOnly(pos, lowered, force));
+            Count(modes, "lowered");
+        }
     }
 
     /// <summary>The player running the command: the remote client, or the host in a local game.</summary>
